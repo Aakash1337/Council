@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "run_id": "run-01K0XYZ",
+  "review_id": "review-codex-01",
+  "provider": "openai",
+  "client": "codex-cli",
+  "model": "recorded-by-client",
+  "role": "independent_reviewer",
+  "phase": "blind",
+  "base_sha": "6c9ad4f63d14223c7a449f238b863fcb5e9bb1aa",
+  "head_sha": "9e087cb9e20302af71f672559f8c25af990242bb",
+  "spec_sha256": "6bc7d2a9f5f01d8ac83e43885655810d34a70be4dfef8a749f706b0244570ca6",
+  "bundle_sha256": "dbb8a3b426da2157088ae6413efb547e7030401c9dcd240f821033eb213e9b7b",
+  "prompt_template_sha256": "4d2c9f90d50f45ce5ecb5d49e105a91219c33e90d505df8b61f7dc40c659b4ca",
+  "verdict": "changes_required",
+  "summary": "One atomicity defect is reproducible; other evaluated criteria pass.",
+  "findings": [
+    {
+      "id": "COD-001",
+      "fingerprint": "AUTH-123/AC-002:concurrency:session.py:rotation-atomicity",
+      "origin": "blind_review",
+      "category": "concurrency",
+      "severity": "high",
+      "confidence": 0.94,
+      "acceptance_ids": ["AUTH-123/AC-002"],
+      "location": {
+        "path": "src/auth/session.py",
+        "start_line": 118,
+        "end_line": 132
+      },
+      "claim": "Concurrent redemption can create two replacement sessions.",
+      "expected": "Exactly one redemption succeeds.",
+      "actual": "The read and update occur outside one transaction.",
+      "evidence_refs": ["evidence/junit/auth.xml#concurrent_rotation"],
+      "reproducer": {
+        "kind": "test",
+        "ref": "test://tests/auth/test_concurrent_rotation.py"
+      },
+      "suggested_remediation": "Make compare-and-rotate a single transaction.",
+      "status": "open"
+    }
+  ],
+  "unreviewed_areas": [],
+  "evidence_gaps": [],
+  "completed_at": "2026-07-13T18:42:00Z"
+}

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentic-cicd:schema:change-manifest:1",
+  "title": "Agentic CI change acceptance manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "title", "risk_tier", "subject", "criteria", "waivers"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "change_id": { "type": "string", "pattern": "^[A-Z][A-Z0-9_-]*-[0-9]+$" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "risk_tier": { "enum": ["low", "medium", "high", "critical"] },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_sha", "head_sha", "spec_path", "spec_sha256"],
+      "properties": {
+        "base_sha": { "$ref": "#/$defs/gitSha" },
+        "head_sha": { "$ref": "#/$defs/gitSha" },
+        "spec_path": { "$ref": "#/$defs/repoPath" },
+        "spec_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/criterion" }
+    },
+    "waivers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^WAIVER-[A-Z0-9_-]+$" }
+    }
+  },
+  "$defs": {
+    "gitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "repoPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "criticality", "owner", "verifier", "evidence"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^AC-[0-9]{3,}$" },
+        "statement": { "type": "string", "minLength": 1 },
+        "criticality": { "enum": ["hard", "scored", "advisory"] },
+        "owner": { "type": "string", "minLength": 1 },
+        "verifier": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "ref", "visibility"],
+          "properties": {
+            "kind": { "enum": ["test", "contract", "policy", "eval", "manual"] },
+            "ref": { "type": "string", "minLength": 1 },
+            "visibility": { "enum": ["public", "hidden"] }
+          }
+        },
+        "threshold": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["metric", "operator", "value"],
+          "properties": {
+            "metric": { "type": "string", "minLength": 1 },
+            "operator": { "enum": ["eq", "neq", "lt", "lte", "gt", "gte"] },
+            "value": { "type": "number" },
+            "minimum_samples": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "required"],
+          "properties": {
+            "format": { "enum": ["junit", "sarif", "lcov", "cobertura", "eval-json", "manual-approval", "other"] },
+            "required": { "type": "boolean" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "criticality": { "const": "scored" } }, "required": ["criticality"] },
+          "then": { "properties": { "threshold": true }, "required": ["threshold"] }
+        }
+      ]
+    }
+  }
+}

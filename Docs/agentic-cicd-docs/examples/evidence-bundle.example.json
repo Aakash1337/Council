@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "run_id": "run-01K0XYZ",
+  "change_id": "AUTH-123",
+  "risk_tier": "high",
+  "provider_transmission": {
+    "class": "private-personal",
+    "authorized_by": "project-owner",
+    "verified_at": "2026-07-13T17:30:00Z"
+  },
+  "subject": {
+    "base_sha": "6c9ad4f63d14223c7a449f238b863fcb5e9bb1aa",
+    "head_sha": "9e087cb9e20302af71f672559f8c25af990242bb",
+    "spec_sha256": "6bc7d2a9f5f01d8ac83e43885655810d34a70be4dfef8a749f706b0244570ca6",
+    "change_manifest_sha256": "2ef42bd59679b99b3f7642fa42875ca873b65ab49c7c5d9d6f71760bd245e67c",
+    "review_input_bundle_sha256": "dbb8a3b426da2157088ae6413efb547e7030401c9dcd240f821033eb213e9b7b"
+  },
+  "artifacts": [
+    {
+      "id": "junit-auth",
+      "kind": "junit",
+      "path": "checks/junit/auth.xml",
+      "sha256": "fa66fe82b154e0a81fa5ebcdf1c72e3ec8f5e72b28a17fb33e953ee1ddb461a2",
+      "media_type": "application/xml"
+    }
+  ],
+  "checks": [
+    {
+      "id": "ci/build-unit",
+      "class": "hard",
+      "conclusion": "pass",
+      "required": true,
+      "evidence_refs": ["junit-auth"]
+    }
+  ],
+  "reviews": {
+    "independent": [
+      {
+        "review_id": "review-codex-01",
+        "path": "reviews/codex.json",
+        "sha256": "52e962e9b98b244bf3f574d772485240b2e3f47b51871d0b10c7d2e13c4747bd"
+      }
+    ],
+    "cross": []
+  },
+  "decision": {
+    "policy_version": "quality/v1",
+    "conclusion": "blocked",
+    "review_coverage": "complete",
+    "blocking_ids": ["COD-001"],
+    "waivers": []
+  },
+  "created_at": "2026-07-13T19:00:00Z"
+}

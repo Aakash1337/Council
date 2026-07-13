@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentic-cicd:schema:evidence-bundle:1",
+  "title": "Agentic CI immutable evidence bundle manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "run_id", "change_id", "risk_tier", "provider_transmission",
+    "subject", "artifacts", "checks", "reviews", "decision", "created_at"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "change_id": { "type": "string", "pattern": "^[A-Z][A-Z0-9_-]*-[0-9]+$" },
+    "risk_tier": { "enum": ["low", "medium", "high", "critical"] },
+    "provider_transmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "authorized_by", "verified_at"],
+      "properties": {
+        "class": { "enum": ["public", "private-personal", "confidential-restricted", "regulated-prohibited"] },
+        "authorized_by": { "type": "string", "minLength": 1 },
+        "verified_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_sha", "head_sha", "spec_sha256", "change_manifest_sha256", "review_input_bundle_sha256"],
+      "properties": {
+        "base_sha": { "$ref": "#/$defs/gitSha" },
+        "head_sha": { "$ref": "#/$defs/gitSha" },
+        "spec_sha256": { "$ref": "#/$defs/sha256" },
+        "change_manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "review_input_bundle_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "reviews": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["independent", "cross"],
+      "properties": {
+        "independent": { "type": "array", "items": { "$ref": "#/$defs/reviewRef" } },
+        "cross": { "type": "array", "items": { "$ref": "#/$defs/reviewRef" } }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_version", "conclusion", "review_coverage", "blocking_ids", "waivers"],
+      "properties": {
+        "policy_version": { "type": "string", "minLength": 1 },
+        "conclusion": { "enum": ["pass", "pass_with_waiver", "blocked", "pending"] },
+        "review_coverage": { "enum": ["complete", "pending_agent", "agent_substituted", "human_required"] },
+        "blocking_ids": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "waivers": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^WAIVER-[A-Z0-9_-]+$" } }
+      }
+    },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "gitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "repoPath": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[^\\u0000-\\u001F\\u007F]+$" },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "path", "sha256", "media_type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["spec", "manifest", "junit", "sarif", "coverage", "eval", "sbom", "provenance", "patch", "log", "other"] },
+        "path": { "$ref": "#/$defs/repoPath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "media_type": { "type": "string", "minLength": 1 }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "class", "conclusion", "required", "evidence_refs"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "class": { "enum": ["hard", "threshold", "scored", "advisory", "human"] },
+        "conclusion": { "enum": ["pass", "fail", "error", "skipped", "pending"] },
+        "required": { "type": "boolean" },
+        "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "reviewRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["review_id", "path", "sha256"],
+      "properties": {
+        "review_id": { "type": "string", "minLength": 1 },
+        "path": { "$ref": "#/$defs/repoPath" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

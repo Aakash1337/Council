@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "run_id": "run-01K0XYZ",
+  "cross_review_id": "cross-codex-01",
+  "source_review_id": "review-codex-01",
+  "target_review_id": "review-claude-01",
+  "provider": "openai",
+  "client": "codex-cli",
+  "model": "recorded-by-client",
+  "base_sha": "6c9ad4f63d14223c7a449f238b863fcb5e9bb1aa",
+  "head_sha": "9e087cb9e20302af71f672559f8c25af990242bb",
+  "spec_sha256": "6bc7d2a9f5f01d8ac83e43885655810d34a70be4dfef8a749f706b0244570ca6",
+  "bundle_sha256": "dbb8a3b426da2157088ae6413efb547e7030401c9dcd240f821033eb213e9b7b",
+  "prompt_template_sha256": "4d2c9f90d50f45ce5ecb5d49e105a91219c33e90d505df8b61f7dc40c659b4ca",
+  "source_review_sha256": "52e962e9b98b244bf3f574d772485240b2e3f47b51871d0b10c7d2e13c4747bd",
+  "target_review_sha256": "0d5b2c74344cb52e3076d31fd46d503499af9e759c408849d9336948220959ed",
+  "responses": [
+    {
+      "target_finding_id": "CLA-004",
+      "disposition": "needs_reproducer",
+      "severity": "medium",
+      "rationale": "The proposed race is plausible, but the evidence does not exercise concurrent cancellation.",
+      "evidence_refs": ["evidence/junit/cancellation.xml"],
+      "superseding_finding_id": null
+    }
+  ],
+  "new_findings": [],
+  "completed_at": "2026-07-13T18:52:00Z"
+}

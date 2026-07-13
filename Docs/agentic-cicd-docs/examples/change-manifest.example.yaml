@@ -1,0 +1,55 @@
+schema_version: 1
+change_id: AUTH-123
+title: Atomic refresh-token rotation
+risk_tier: high
+
+subject:
+  base_sha: 6c9ad4f63d14223c7a449f238b863fcb5e9bb1aa
+  head_sha: 9e087cb9e20302af71f672559f8c25af990242bb
+  spec_path: specs/changes/AUTH-123/specification.md
+  spec_sha256: 6bc7d2a9f5f01d8ac83e43885655810d34a70be4dfef8a749f706b0244570ca6
+
+criteria:
+  - id: AC-001
+    statement: A refresh token can be redeemed no more than once.
+    criticality: hard
+    owner: team-auth
+    verifier:
+      kind: test
+      ref: test://tests/auth/test_rotation.py::test_single_redemption
+      visibility: public
+    evidence:
+      format: junit
+      required: true
+
+  - id: AC-002
+    statement: Two concurrent redemptions produce exactly one new session.
+    criticality: hard
+    owner: team-auth
+    verifier:
+      kind: test
+      ref: holdout://auth/concurrent-rotation/v3
+      visibility: hidden
+    evidence:
+      format: junit
+      required: true
+
+  - id: AC-003
+    statement: P95 rotation latency does not regress by more than 10 percent.
+    criticality: scored
+    owner: team-auth
+    verifier:
+      kind: eval
+      ref: eval://auth/rotation-performance
+      visibility: public
+    threshold:
+      metric: p95_ms_ratio_to_baseline
+      operator: lte
+      value: 1.10
+      minimum_samples: 30
+    evidence:
+      format: eval-json
+      required: true
+
+waivers: []
+

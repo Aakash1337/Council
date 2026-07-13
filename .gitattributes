@@ -1,0 +1,9 @@
+# Normalize all text files to LF in the repository and on checkout.
+# Consistent line endings matter here: evidence bundles hash file
+# contents, and cross-platform agents must produce identical diffs.
+* text=auto eol=lf
+
+# Binary formats (none yet; add as needed)
+*.png binary
+*.jpg binary
+*.pdf binary

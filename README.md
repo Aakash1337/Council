@@ -28,3 +28,7 @@ Proposed baseline (v0.1) — documentation phase; implementation has not started
 
 - `main` — the canonical, organization-oriented platform design.
 - `home` — adaptations for single-operator/home-lab use. The diff from `main` serves as the divergence record; commit messages on this branch record the rationale for each deviation.
+- `phase-N-<name>` — each roadmap phase (see [implementation roadmap](Docs/agentic-cicd-docs/07-implementation-roadmap.md)) is developed on its own branch and merged into `main` through a pull request, e.g. `phase-0-discovery`, `phase-1-spec-loop`.
+- `feature/<name>` — discrete features or fixes that don't map to a whole phase.
+
+Phase and feature branches are created when work begins, not in advance, and are deleted after merge.

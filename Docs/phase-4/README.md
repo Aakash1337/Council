@@ -14,7 +14,7 @@ Phase 4 validates the review protocol with the real first-party clients before t
 | P4-03 Codex-for-Claude plugin | Supervised interactive path | Deferred (needs Claude auth) |
 | P4-04 Review JSON schema | `agent-review.schema.json` (from P5 broker) | Done |
 | P4-05 Evidence bundle | Broker `freeze` | Done (P5) |
-| P4-06 Adversarial review with seeded defect | Real Codex review of a seeded data race | **Done — see below** |
+| P4-06 Adversarial review with seeded defect | Real Codex review of a seeded data race (**detection** proven; repair+reconfirm pending) | **Partial — see below** |
 | P4-07 Iteration budgets | Time/turn limits in `CLIRunner` | Done (P5) |
 | P4-08 Review-quality metrics | Detection recorded on the seeded corpus | Partial (single case) |
 | P4-09 Unattended-auth qualification | `claude setup-token` spike (PAC-018) | **Owner action** — see below |
@@ -46,9 +46,10 @@ This is precisely the **agent-unavailable** state the platform is designed for (
 | Criterion | Status |
 |---|---|
 | A reviewer produces schema-valid structured findings | **Met** (Codex, after one bounded repair) |
-| A seeded high-severity defect is found and reported | **Met** (Codex found the data race) |
+| A seeded high-severity defect is **found** | **Met** (Codex found the data race) |
+| The seeded defect is **repaired** and re-review confirms the fix | **Not met** — no repair/final-review artifact yet; the roadmap's G4 requires found *and* repaired, so this gate is not closed |
 | The loop stops on budget/no-progress | Met (P5 budgets) |
 | Auth artifacts never appear in repos/logs/build runners | Met (broker handles no tokens; runner credential-free per G3) |
 | Both models review independently | **Blocked** on Claude auth (owner P4-09) |
 
-G4 is met for the Codex reviewer and the protocol mechanics; the two-model portion resumes once Claude re-authenticates.
+**G4 is not yet closed.** The Codex reviewer and protocol mechanics are proven (detection of the seeded defect, schema validation, single-provider `pending` handling), but two of the gate's criteria remain open: the repair-and-reconfirm loop, and independent two-model review — both of which need the Claude reviewer, i.e. the owner's `claude setup-token` action (P4-09). This page must not be used to close P4 until those land.

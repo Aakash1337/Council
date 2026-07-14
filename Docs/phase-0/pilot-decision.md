@@ -45,11 +45,11 @@ Known gaps versus the ideal profile (acceptable, and useful platform work):
 | No CI workflow | Advantage: greenfield for the platform's `pr.yml`, no legacy to migrate |
 | Repository is **public** | Blocking owner action, below |
 
-## Owner actions required before G0 closes
+## Owner actions — all resolved 2026-07-14
 
-1. **Flip `Aakash1337/CustomDNS` to private** (Settings → General → Danger Zone → Change visibility). Required by ASM-001 and CON-004; a public repo cannot use the persistent local runner (FR-RUN-001) and would undermine the local-first pilot. The agent does not change repository visibility on the owner's behalf.
-2. **Confirm the `httpserver`/`cybiccrm` classification assumption** (or correct it).
-3. **Verify provider model-improvement controls** for both consumer accounts and record the verification date (FR-AGENT-014, doc 04 §5.2): OpenAI "Improve the model for everyone" + Codex training control; Anthropic Model Improvement setting. Required before Phase 4, not before G0.
+1. ~~Flip `Aakash1337/CustomDNS` to private~~ — **Done** (owner, 2026-07-14); verified `private: true`.
+2. ~~Confirm the `httpserver`/`cybiccrm` classification assumption~~ — **Confirmed**: the owner states the `cybiccrm` repository is not theirs. `httpserver` remains `confidential-restricted` and out of platform scope; the disqualification stands.
+3. ~~Verify provider model-improvement controls~~ — **Verified** (FR-AGENT-014): the owner states both OpenAI and Anthropic model-improvement/data-training controls have been disabled since account creation. Verification recorded 2026-07-14, authorized by `Aakash1337`; next quarterly recheck due 2026-10-14.
 
 ## Provider-transmission classification (FR-AGENT-013)
 

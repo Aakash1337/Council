@@ -48,6 +48,7 @@ type CrossResponse struct {
 // never author these (doc 04 §2).
 type Waiver struct {
 	FindingID string `json:"finding_id"` // exact blocking finding ID
+	HeadSHA   string `json:"head_sha"`   // candidate the waiver applies to — a waiver never travels across runs
 	Approver  string `json:"approver"`   // named human approver
 	Expiry    string `json:"expiry"`     // RFC3339; compared lexically-safe via time parse
 }
@@ -59,6 +60,7 @@ type GateState struct {
 	HumanApprovals   bool     // required human approvals present for the tier
 	Waivers          []Waiver // policy-eligible, human-approved waivers
 	Now              string   // RFC3339 evaluation time (injected for determinism)
+	HeadSHA          string   // the reviewed candidate; waivers must name it exactly
 }
 
 // Decision is the normalized broker output (doc 05 §13 statuses).
@@ -160,7 +162,11 @@ func Decide(gate GateState, reviews []Review, cross []CrossResponse, agentsAvail
 	}
 	sort.Strings(keys)
 
-	needsHuman := false
+	// humanIDs tracks, per finding ID, the rows that demand human
+	// adjudication. A valid waiver on that exact finding IS the human
+	// adjudication, so waiving clears both the block and the human
+	// requirement for that finding (review finding on #9).
+	humanIDs := map[string]bool{}
 	for _, k := range keys {
 		a := byKey[k]
 		sev := a.f.Severity
@@ -176,11 +182,11 @@ func Decide(gate GateState, reviews []Review, cross []CrossResponse, agentsAvail
 			// Confirmed by the other reviewer but not yet reproduced ->
 			// block pending reproducer/human.
 			d.BlockingIDs = append(d.BlockingIDs, a.f.ID)
-			needsHuman = true
+			humanIDs[a.f.ID] = true
 			d.Reasons = append(d.Reasons, fmt.Sprintf("%s: %s finding confirmed by both reviewers, needs reproducer/human", a.f.ID, sev))
 		case highish && !a.otherRejects:
 			// Lone unrefuted high/critical -> not dismissed; route to human.
-			needsHuman = true
+			humanIDs[a.f.ID] = true
 			d.Reasons = append(d.Reasons, fmt.Sprintf("%s: unrefuted %s finding, human adjudication", a.f.ID, sev))
 		case sev == "medium" && len(a.f.AcceptanceID) > 0 && a.reproduced:
 			// Medium with demonstrated acceptance violation -> block.
@@ -199,32 +205,45 @@ func Decide(gate GateState, reviews []Review, cross []CrossResponse, agentsAvail
 		return d
 	}
 
-	// Waiver application (doc 05 §13): a blocking finding moves to waived
-	// only when an unexpired, human-approved waiver names its exact ID.
-	// Hard-gate and evidence failures returned above are non-waivable by
-	// construction — waivers apply only to finding-level blocks.
-	if len(gate.Waivers) > 0 && len(d.BlockingIDs) > 0 {
+	// Waiver application (doc 05 §13): a finding is waived only when an
+	// unexpired, human-approved waiver names its exact ID AND the exact
+	// candidate head SHA — a waiver never travels across runs (review
+	// finding on #9). Hard-gate and evidence failures returned above are
+	// non-waivable by construction.
+	if len(gate.Waivers) > 0 && (len(d.BlockingIDs) > 0 || len(humanIDs) > 0) {
 		valid := map[string]Waiver{}
 		for _, w := range gate.Waivers {
-			if w.Approver == "" {
-				continue // unowned waiver is invalid
-			}
-			if expired(w.Expiry, gate.Now) {
+			switch {
+			case w.Approver == "":
+				d.Reasons = append(d.Reasons, fmt.Sprintf("waiver for %s has no approver — not applied", w.FindingID))
+			case expired(w.Expiry, gate.Now):
 				d.Reasons = append(d.Reasons, fmt.Sprintf("waiver for %s expired %s — not applied", w.FindingID, w.Expiry))
-				continue
+			case gate.HeadSHA == "" || w.HeadSHA != gate.HeadSHA:
+				d.Reasons = append(d.Reasons, fmt.Sprintf("waiver for %s is scoped to head %q, candidate is %q — not applied", w.FindingID, w.HeadSHA, gate.HeadSHA))
+			default:
+				valid[w.FindingID] = w
 			}
-			valid[w.FindingID] = w
 		}
 		var stillBlocking []string
 		for _, id := range d.BlockingIDs {
 			if w, ok := valid[id]; ok {
 				d.WaivedIDs = append(d.WaivedIDs, id)
-				d.Reasons = append(d.Reasons, fmt.Sprintf("%s waived by %s until %s", id, w.Approver, w.Expiry))
+				delete(humanIDs, id) // the waiver is the human adjudication
+				d.Reasons = append(d.Reasons, fmt.Sprintf("%s waived by %s until %s (head %s)", id, w.Approver, w.Expiry, w.HeadSHA))
 			} else {
 				stillBlocking = append(stillBlocking, id)
 			}
 		}
 		d.BlockingIDs = stillBlocking
+		// A waiver may also adjudicate a non-blocking human-required
+		// finding (lone unrefuted high).
+		for id := range humanIDs {
+			if w, ok := valid[id]; ok {
+				d.WaivedIDs = append(d.WaivedIDs, id)
+				delete(humanIDs, id)
+				d.Reasons = append(d.Reasons, fmt.Sprintf("%s waived by %s until %s (head %s)", id, w.Approver, w.Expiry, w.HeadSHA))
+			}
+		}
 	}
 
 	sort.Strings(d.BlockingIDs)
@@ -232,7 +251,7 @@ func Decide(gate GateState, reviews []Review, cross []CrossResponse, agentsAvail
 	switch {
 	case len(d.BlockingIDs) > 0:
 		d.Conclusion = "blocked"
-	case needsHuman:
+	case len(humanIDs) > 0:
 		d.Conclusion = "pending"
 		d.ReviewCoverage = "human_required"
 	case len(d.WaivedIDs) > 0:

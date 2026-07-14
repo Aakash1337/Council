@@ -217,7 +217,8 @@ func TestNeedsReproducerRoutesToHuman(t *testing.T) {
 func TestValidWaiverYieldsPassWithWaiver(t *testing.T) {
 	g := hardPass()
 	g.Now = "2026-07-14T00:00:00Z"
-	g.Waivers = []Waiver{{FindingID: "COD-001", Approver: "Aakash1337", Expiry: "2026-08-01T00:00:00Z"}}
+	g.HeadSHA = "bbbb"
+	g.Waivers = []Waiver{{FindingID: "COD-001", HeadSHA: "bbbb", Approver: "Aakash1337", Expiry: "2026-08-01T00:00:00Z"}}
 	reviews := []Review{
 		{Provider: "openai", Verdict: "changes_required", Findings: []Finding{
 			{ID: "COD-001", Fingerprint: "w1", Severity: "high", Category: "security", HasReproducer: true},
@@ -237,7 +238,8 @@ func TestValidWaiverYieldsPassWithWaiver(t *testing.T) {
 func TestExpiredWaiverStillBlocks(t *testing.T) {
 	g := hardPass()
 	g.Now = "2026-07-14T00:00:00Z"
-	g.Waivers = []Waiver{{FindingID: "COD-001", Approver: "Aakash1337", Expiry: "2026-07-01T00:00:00Z"}}
+	g.HeadSHA = "bbbb"
+	g.Waivers = []Waiver{{FindingID: "COD-001", HeadSHA: "bbbb", Approver: "Aakash1337", Expiry: "2026-07-01T00:00:00Z"}}
 	reviews := []Review{
 		{Provider: "openai", Verdict: "changes_required", Findings: []Finding{
 			{ID: "COD-001", Fingerprint: "w2", Severity: "high", Category: "security", HasReproducer: true},
@@ -254,9 +256,10 @@ func TestExpiredWaiverStillBlocks(t *testing.T) {
 func TestWaiverEdgeCases(t *testing.T) {
 	g := hardPass()
 	g.Now = "2026-07-14T00:00:00Z"
+	g.HeadSHA = "bbbb"
 	g.Waivers = []Waiver{
-		{FindingID: "COD-001", Approver: "", Expiry: "2026-08-01T00:00:00Z"}, // unowned
-		{FindingID: "COD-002", Approver: "Aakash1337", Expiry: "not-a-date"}, // unparseable
+		{FindingID: "COD-001", HeadSHA: "bbbb", Approver: "", Expiry: "2026-08-01T00:00:00Z"}, // unowned
+		{FindingID: "COD-002", HeadSHA: "bbbb", Approver: "Aakash1337", Expiry: "not-a-date"}, // unparseable
 	}
 	reviews := []Review{
 		{Provider: "openai", Verdict: "changes_required", Findings: []Finding{
@@ -270,8 +273,8 @@ func TestWaiverEdgeCases(t *testing.T) {
 	}
 	// Waivers never rescue a hard-gate failure.
 	g2 := GateState{HardGatesPass: false, RequiredEvidence: true, HumanApprovals: true,
-		Now:     "2026-07-14T00:00:00Z",
-		Waivers: []Waiver{{FindingID: "anything", Approver: "a", Expiry: "2027-01-01T00:00:00Z"}}}
+		Now: "2026-07-14T00:00:00Z", HeadSHA: "bbbb",
+		Waivers: []Waiver{{FindingID: "anything", HeadSHA: "bbbb", Approver: "a", Expiry: "2027-01-01T00:00:00Z"}}}
 	d2 := Decide(g2, reviews, nil, true)
 	if d2.Conclusion != "blocked" {
 		t.Fatalf("waiver must not clear a hard gate: %s", d2.Conclusion)
@@ -288,5 +291,81 @@ func TestMissingHumanApprovalPending(t *testing.T) {
 	d := Decide(g, reviews, nil, true)
 	if d.Conclusion != "pending" || d.ReviewCoverage != "human_required" {
 		t.Fatalf("expected pending/human_required, got %s/%s", d.Conclusion, d.ReviewCoverage)
+	}
+}
+
+// A waiver scoped to a different candidate head must not apply — waivers
+// never travel across runs (review finding on #9).
+func TestWaiverWrongHeadNotApplied(t *testing.T) {
+	g := hardPass()
+	g.Now = "2026-07-14T00:00:00Z"
+	g.HeadSHA = "bbbb"
+	g.Waivers = []Waiver{{FindingID: "COD-001", HeadSHA: "aaaa-old-run", Approver: "Aakash1337", Expiry: "2026-08-01T00:00:00Z"}}
+	reviews := []Review{
+		{Provider: "openai", Verdict: "changes_required", Findings: []Finding{
+			{ID: "COD-001", Fingerprint: "ws1", Severity: "high", Category: "security", HasReproducer: true},
+		}},
+	}
+	d := Decide(g, reviews, nil, true)
+	if d.Conclusion != "blocked" {
+		t.Fatalf("cross-run waiver must not apply: %s", d.Conclusion)
+	}
+}
+
+// When the gate has no head SHA to scope against, no waiver applies
+// (fail closed rather than guessing).
+func TestWaiverWithoutGateHeadNotApplied(t *testing.T) {
+	g := hardPass()
+	g.Now = "2026-07-14T00:00:00Z" // HeadSHA deliberately empty
+	g.Waivers = []Waiver{{FindingID: "COD-001", HeadSHA: "bbbb", Approver: "Aakash1337", Expiry: "2026-08-01T00:00:00Z"}}
+	reviews := []Review{
+		{Provider: "openai", Verdict: "changes_required", Findings: []Finding{
+			{ID: "COD-001", Fingerprint: "ws2", Severity: "high", Category: "security", HasReproducer: true},
+		}},
+	}
+	d := Decide(g, reviews, nil, true)
+	if d.Conclusion != "blocked" {
+		t.Fatalf("waiver without gate head scope must not apply: %s", d.Conclusion)
+	}
+}
+
+// Waiving a confirmed-but-unreproduced blocker (which also demanded a
+// human) yields pass_with_waiver: the waiver IS the human adjudication
+// (review finding on #9).
+func TestWaiverClearsConfirmedBlockerHumanRequirement(t *testing.T) {
+	g := hardPass()
+	g.Now = "2026-07-14T00:00:00Z"
+	g.HeadSHA = "bbbb"
+	g.Waivers = []Waiver{{FindingID: "CLA-020", HeadSHA: "bbbb", Approver: "Aakash1337", Expiry: "2026-08-01T00:00:00Z"}}
+	reviews := []Review{
+		{Provider: "anthropic", Verdict: "changes_required", Findings: []Finding{
+			{ID: "CLA-020", Fingerprint: "conf1", Severity: "high", Category: "security"},
+		}},
+		{Provider: "openai", Verdict: "changes_required", Findings: []Finding{
+			{ID: "COD-020", Fingerprint: "conf1", Severity: "high", Category: "security"},
+		}},
+	}
+	d := Decide(g, reviews, nil, true)
+	if d.Conclusion != "pass_with_waiver" {
+		t.Fatalf("waived confirmed blocker must be pass_with_waiver, got %s (%v)", d.Conclusion, d.Reasons)
+	}
+}
+
+// A waiver also adjudicates a lone unrefuted high (human-required but
+// not blocking).
+func TestWaiverClearsLoneHighHumanRequirement(t *testing.T) {
+	g := hardPass()
+	g.Now = "2026-07-14T00:00:00Z"
+	g.HeadSHA = "bbbb"
+	g.Waivers = []Waiver{{FindingID: "CLA-021", HeadSHA: "bbbb", Approver: "Aakash1337", Expiry: "2026-08-01T00:00:00Z"}}
+	reviews := []Review{
+		{Provider: "anthropic", Verdict: "changes_required", Findings: []Finding{
+			{ID: "CLA-021", Fingerprint: "lone1", Severity: "high", Category: "perf"},
+		}},
+		{Provider: "openai", Verdict: "approve"},
+	}
+	d := Decide(g, reviews, nil, true)
+	if d.Conclusion != "pass_with_waiver" {
+		t.Fatalf("waived lone-high must be pass_with_waiver, got %s (%v)", d.Conclusion, d.Reasons)
 	}
 }

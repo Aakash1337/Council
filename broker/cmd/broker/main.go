@@ -280,10 +280,20 @@ func cmdDecide(args []string) error {
 		})
 	}
 
+	// Waivers are scoped to the exact reviewed candidate: take the head
+	// SHA from the frozen bundle. Without a bundle, no waiver can apply
+	// (the arbiter fails closed on an empty gate head).
+	headSHA := ""
+	if b, err := bundle.Load(*dir); err == nil {
+		headSHA = b.HeadSHA
+	} else if len(waivers) > 0 {
+		return fmt.Errorf("waivers supplied but bundle.json is unreadable (needed for head-SHA scoping): %w", err)
+	}
+
 	d := arbiter.Decide(
 		arbiter.GateState{
 			HardGatesPass: *hard, RequiredEvidence: *evid, HumanApprovals: *human,
-			Waivers: waivers, Now: *now,
+			Waivers: waivers, Now: *now, HeadSHA: headSHA,
 		},
 		reviews, cross, *agentsAvail,
 	)

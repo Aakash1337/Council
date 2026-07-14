@@ -45,9 +45,13 @@ provider/client pairing, and ECMA-262 path patterns are enforced
 (schema package tests).
 
 Waivers (doc 05 §13): supplied via `decide --waivers-file --now`;
-scoped to exact finding IDs, require a named approver, expire
-deterministically (fail-closed on unparseable dates), and can never
-clear a hard-gate or evidence failure.
+scoped to the exact finding ID **and the exact candidate head SHA**
+(taken from the frozen bundle — a waiver never travels across runs),
+require a named approver, expire deterministically (fail-closed on
+unparseable dates), and can never clear a hard-gate or evidence
+failure. A valid waiver is itself the human adjudication for its
+finding, so waiving a confirmed blocker yields `pass_with_waiver`
+rather than `human_required`.
 
 ## Runners
 

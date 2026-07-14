@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentic-cicd:schema:agent-cross-review:1",
+  "title": "Agent cross-review report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "run_id", "cross_review_id", "source_review_id", "target_review_id",
+    "provider", "client", "model", "base_sha", "head_sha", "spec_sha256", "bundle_sha256",
+    "prompt_template_sha256", "source_review_sha256", "target_review_sha256", "responses", "new_findings", "completed_at"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "cross_review_id": { "type": "string", "minLength": 1 },
+    "source_review_id": { "type": "string", "minLength": 1 },
+    "target_review_id": { "type": "string", "minLength": 1 },
+    "provider": { "enum": ["anthropic", "openai"] },
+    "client": { "enum": ["claude-code", "codex-cli"] },
+    "model": { "type": "string", "minLength": 1 },
+    "base_sha": { "$ref": "#/$defs/gitSha" },
+    "head_sha": { "$ref": "#/$defs/gitSha" },
+    "spec_sha256": { "$ref": "#/$defs/sha256" },
+    "bundle_sha256": { "$ref": "#/$defs/sha256" },
+    "prompt_template_sha256": { "$ref": "#/$defs/sha256" },
+    "source_review_sha256": { "$ref": "#/$defs/sha256" },
+    "target_review_sha256": { "$ref": "#/$defs/sha256" },
+    "responses": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/response" }
+    },
+    "new_findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "completed_at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "provider": { "const": "anthropic" } }, "required": ["provider"] },
+      "then": { "properties": { "client": { "const": "claude-code" } } }
+    },
+    {
+      "if": { "properties": { "provider": { "const": "openai" } }, "required": ["provider"] },
+      "then": { "properties": { "client": { "const": "codex-cli" } } }
+    }
+  ],
+  "$defs": {
+    "gitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "repoPath": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[^\\u0000-\\u001F\\u007F]+$" },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_finding_id", "disposition", "severity", "rationale", "evidence_refs", "superseding_finding_id"],
+      "properties": {
+        "target_finding_id": { "type": "string", "minLength": 1 },
+        "disposition": { "enum": ["accept", "reject", "modify", "needs_reproducer", "needs_human"] },
+        "severity": { "enum": ["critical", "high", "medium", "low", "info"] },
+        "rationale": { "type": "string", "minLength": 1 },
+        "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "superseding_finding_id": { "type": ["string", "null"], "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "disposition": { "const": "modify" } }, "required": ["disposition"] },
+          "then": { "properties": { "superseding_finding_id": { "type": "string", "minLength": 1 } } },
+          "else": { "properties": { "superseding_finding_id": { "const": null } } }
+        }
+      ]
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "fingerprint", "origin", "category", "severity", "confidence", "acceptance_ids",
+        "location", "claim", "expected", "actual", "evidence_refs", "reproducer",
+        "suggested_remediation", "status"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "fingerprint": { "type": "string", "minLength": 1 },
+        "origin": { "const": "cross_review" },
+        "category": { "type": "string", "minLength": 1 },
+        "severity": { "enum": ["critical", "high", "medium", "low", "info"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "acceptance_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_-]*-[0-9]+/AC-[0-9]{3,}$" }
+        },
+        "location": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["path", "start_line", "end_line"],
+          "properties": {
+            "path": { "$ref": "#/$defs/repoPath" },
+            "start_line": { "type": "integer", "minimum": 1 },
+            "end_line": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "claim": { "type": "string", "minLength": 1 },
+        "expected": { "type": "string", "minLength": 1 },
+        "actual": { "type": "string", "minLength": 1 },
+        "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "reproducer": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["kind", "ref"],
+          "properties": {
+            "kind": { "enum": ["test", "command", "trace", "manual"] },
+            "ref": { "type": "string", "minLength": 1 }
+          }
+        },
+        "suggested_remediation": { "type": "string" },
+        "status": { "const": "open" }
+      }
+    }
+  }
+}

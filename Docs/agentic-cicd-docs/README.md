@@ -6,9 +6,9 @@ Project documentation for **Council**, a local-first, specification-driven CI/CD
 **Version:** 0.1  
 **Last updated:** 2026-07-13  
 **Initial operating assumption:** Private GitHub repositories, a capable home server, ChatGPT Pro, and Claude Max with Claude Code.  
-**Project owner:** TBD  
-**Security owner:** TBD  
-**Pilot repository:** TBD
+**Project owner:** Aakash (`Aakash1337`) — all logical roles per the [Phase 0 owners record](../phase-0/owners.md)  
+**Security owner:** Aakash (`Aakash1337`, logical role)  
+**Pilot repository:** `Aakash1337/CustomDNS` (proposed — see the [pilot decision record](../phase-0/pilot-decision.md))
 
 ## Executive decision
 

@@ -97,6 +97,9 @@ Inherent score is `likelihood × impact` before planned controls. Residual score
 | R-035 | Model or client version changes invalidate evaluation baselines | 4/3/12 | Record version metadata; canary new versions; parallel benchmark; threshold reapproval | 2/2/4 | Evaluation owner | Open |
 | R-036 | Human reviewers over-trust polished agent evidence | 4/4/16 | Reproducer-first UI; show deterministic evidence; training; explicit uncertainty; audit sampled approvals | 2/3/6 | Project owner | Open |
 | R-037 | Consumer-plan agent use transmits confidential, regulated, or unauthorized source/evidence | 4/5/20 | Mandatory transmission classification; data-owner approval; provider-control verification; secret/regulated-data denial; approved alternative for restricted repositories | 1/5/5 | Security owner | Open |
+| R-038 | Workstation colocation: the daily-driver machine also hosts the runner VM and agent broker, weakening trust-zone separation (Phase 0 finding F-01) | 4/4/16 | VirtualBox VM boundary for the runner; dedicated OS accounts for agent clients; host-only/NAT VM networking; ACT-004 reachability tests before agent credentials; revisit if a separate server is added | 2/3/6 | Platform owner | Open |
+| R-039 | Disk exhaustion on the pilot host blocks runner VM, caches, and evidence storage (Phase 0 finding F-02) | 4/3/12 | Free/add ~150 GB before P3; cache and evidence quotas; retention lifecycle from day one | 2/2/4 | Platform owner | Open |
+| R-040 | VirtualBox dependency on Windows 11 Home (no Hyper-V): community update cadence and manual VM lifecycle | 3/3/9 | Pin VirtualBox version; scripted VM template; staged updates; revisit on host OS upgrade | 2/2/4 | Platform owner | Open |
 
 ## 4. Detailed treatment and monitoring plan
 

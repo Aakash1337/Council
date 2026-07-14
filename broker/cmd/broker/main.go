@@ -243,9 +243,18 @@ func cmdDecide(args []string) error {
 	evid := fs.Bool("evidence", false, "required evidence present and hash-matched")
 	human := fs.Bool("human-approvals", false, "required human approvals present")
 	agentsAvail := fs.Bool("agents-available", true, "agent lane available")
+	waiversFile := fs.String("waivers-file", "", "JSON array of policy-eligible waivers (finding_id, approver, expiry)")
+	now := fs.String("now", "", "RFC3339 evaluation time for waiver expiry (required with --waivers-file)")
 	_ = fs.Parse(args)
 	if *dir == "" {
 		return fmt.Errorf("--dir required")
+	}
+	waivers, err := loadWaivers(*waiversFile)
+	if err != nil {
+		return fmt.Errorf("waivers: %w", err)
+	}
+	if len(waivers) > 0 && *now == "" {
+		return fmt.Errorf("--now is required when waivers are supplied (expiry is checked deterministically)")
 	}
 
 	// Re-verify sealed blind reports against the hashes recorded at seal
@@ -271,8 +280,21 @@ func cmdDecide(args []string) error {
 		})
 	}
 
+	// Waivers are scoped to the exact reviewed candidate: take the head
+	// SHA from the frozen bundle. Without a bundle, no waiver can apply
+	// (the arbiter fails closed on an empty gate head).
+	headSHA := ""
+	if b, err := bundle.Load(*dir); err == nil {
+		headSHA = b.HeadSHA
+	} else if len(waivers) > 0 {
+		return fmt.Errorf("waivers supplied but bundle.json is unreadable (needed for head-SHA scoping): %w", err)
+	}
+
 	d := arbiter.Decide(
-		arbiter.GateState{HardGatesPass: *hard, RequiredEvidence: *evid, HumanApprovals: *human},
+		arbiter.GateState{
+			HardGatesPass: *hard, RequiredEvidence: *evid, HumanApprovals: *human,
+			Waivers: waivers, Now: *now, HeadSHA: headSHA,
+		},
 		reviews, cross, *agentsAvail,
 	)
 	out, _ := json.MarshalIndent(d, "", "  ")
@@ -410,6 +432,24 @@ func verifySeals(sealBase string) error {
 		}
 	}
 	return nil
+}
+
+// loadWaivers reads a JSON array of policy-eligible waivers. An empty
+// path means no waivers. Agents never author these files (doc 04 §2);
+// they arrive from the human waiver process (doc 05 §13).
+func loadWaivers(path string) ([]arbiter.Waiver, error) {
+	if path == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var ws []arbiter.Waiver
+	if err := json.Unmarshal(raw, &ws); err != nil {
+		return nil, err
+	}
+	return ws, nil
 }
 
 func loadFixtures(spec string) (map[agent.Provider][]byte, error) {

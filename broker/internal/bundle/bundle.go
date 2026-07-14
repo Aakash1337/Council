@@ -127,10 +127,16 @@ func (b *Bundle) Write(dir string) error {
 	return os.WriteFile(filepath.Join(dir, "bundle.json"), out, 0o644)
 }
 
-// Verify recomputes every file hash and the aggregate, returning an error
-// if the on-disk bundle no longer matches what was frozen. This is the
-// tamper check run before consuming a bundle (doc 04 §6, §9.3).
+// frozenInputPrefixes are the immutable-input trees an agent reads. A
+// file appearing under one of these after freeze (not just a changed
+// file) breaks the frozen-bundle guarantee and must be rejected.
+var frozenInputPrefixes = []string{"subject/", "spec/", "evidence/"}
+
+// Verify recomputes every file hash and the aggregate, and rejects any
+// file added under a frozen input tree after freeze. This is the tamper
+// check run before consuming a bundle (doc 04 §6, §9.3).
 func (b *Bundle) Verify(dir string) error {
+	// 1. Every recorded file must still match its frozen hash.
 	for rel, want := range b.Files {
 		got, err := FileSHA256(filepath.Join(dir, filepath.FromSlash(rel)))
 		if err != nil {
@@ -139,6 +145,31 @@ func (b *Bundle) Verify(dir string) error {
 		if got != want {
 			return fmt.Errorf("bundle file %s changed: have %s, want %s", rel, got, want)
 		}
+	}
+	// 2. No unexpected file may appear under a frozen input tree. Output
+	//    trees (reviews/, decisions/, repairs/) and bundle.json are written
+	//    after freeze and are allowed.
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if _, known := b.Files[rel]; known {
+			return nil
+		}
+		for _, p := range frozenInputPrefixes {
+			if strings.HasPrefix(rel, p) {
+				return fmt.Errorf("unexpected file added under frozen input after freeze: %s", rel)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	if agg := b.computeAggregate(); agg != b.BundleSHA256 {
 		return fmt.Errorf("bundle aggregate mismatch: have %s, want %s", agg, b.BundleSHA256)

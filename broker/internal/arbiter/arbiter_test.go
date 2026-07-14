@@ -117,6 +117,25 @@ func TestBothFindSameHighBlocks(t *testing.T) {
 	}
 }
 
+// A blocker discovered only in cross-review (new_findings), when both
+// blind reviews approved, must still block (regression for the dropped
+// new_findings bug).
+func TestCrossReviewNewFindingBlocks(t *testing.T) {
+	blind := []Review{
+		{Provider: "anthropic", Verdict: "approve"},
+		{Provider: "openai", Verdict: "approve"},
+	}
+	// Simulate the decide-layer behavior: cross-review new findings are
+	// carried as an extra review lane.
+	crossLane := Review{Provider: "cross", Verdict: "changes_required", Findings: []Finding{
+		{ID: "XR-001", Fingerprint: "xrfp", Severity: "high", Category: "security", HasReproducer: true},
+	}}
+	d := Decide(hardPass(), append(blind, crossLane), nil, true)
+	if d.Conclusion != "blocked" {
+		t.Fatalf("cross-review-discovered blocker must block, got %s", d.Conclusion)
+	}
+}
+
 // Missing human approval yields pending/human_required even when clean.
 func TestMissingHumanApprovalPending(t *testing.T) {
 	g := GateState{HardGatesPass: true, RequiredEvidence: true, HumanApprovals: false}

@@ -151,10 +151,18 @@ func cmdReview(args []string) error {
 		prompt = string(p)
 	}
 
-	sealDir := filepath.Join(*dir, "reviews", "blind")
-	if err := os.MkdirAll(sealDir, 0o755); err != nil {
-		return err
+	// Blind-review invariant (doc 04 §7.2–7.3): no reviewer may see
+	// another's report. Each reviewer runs with the bundle dir as cwd, so
+	// we must NOT write any sealed report there while another review is
+	// still pending. Run every review first, buffering validated output
+	// in memory; only after all reviews complete do we write and hash the
+	// seals — into a seal dir OUTSIDE the bundle (a sibling), so review
+	// subprocesses never have a sealed peer report on a readable path.
+	type sealed struct {
+		provider agent.Provider
+		raw      []byte
 	}
+	var results []sealed
 
 	providers := []agent.Provider{agent.Anthropic, agent.OpenAI}
 	for _, p := range providers {
@@ -168,13 +176,29 @@ func cmdReview(args []string) error {
 		if err := val.ValidateBytes(res.RawJSON); err != nil {
 			return fmt.Errorf("%s review failed schema validation: %w", p, err)
 		}
-		// Seal: write the exact validated bytes and record their hash.
-		out := filepath.Join(sealDir, string(p)+".json")
-		if err := os.WriteFile(out, res.RawJSON, 0o644); err != nil {
+		results = append(results, sealed{provider: p, raw: res.RawJSON})
+	}
+
+	// Seal after all reviews finished. Seals live in <dir>-seals/blind so
+	// they are outside the bundle any reviewer used as cwd. A seals.json
+	// manifest records the hashes so `decide` can detect post-seal edits.
+	sealDir := filepath.Join(*dir+"-seals", "blind")
+	if err := os.MkdirAll(sealDir, 0o755); err != nil {
+		return err
+	}
+	seals := map[string]string{}
+	for _, s := range results {
+		out := filepath.Join(sealDir, string(s.provider)+".json")
+		if err := os.WriteFile(out, s.raw, 0o644); err != nil {
 			return err
 		}
 		sum, _ := bundle.FileSHA256(out)
-		fmt.Printf("sealed %s review: sha256=%s\n", p, sum)
+		seals[string(s.provider)+".json"] = sum
+		fmt.Printf("sealed %s review: sha256=%s\n", s.provider, sum)
+	}
+	sealsJSON, _ := json.MarshalIndent(seals, "", "  ")
+	if err := os.WriteFile(filepath.Join(*dir+"-seals", "seals.json"), sealsJSON, 0o644); err != nil {
+		return err
 	}
 	return nil
 }
@@ -191,7 +215,7 @@ func cmdCross(args []string) error {
 	if err != nil {
 		return err
 	}
-	crossDir := filepath.Join(*dir, "reviews", "cross")
+	crossDir := filepath.Join(*dir+"-seals", "cross")
 	entries, err := os.ReadDir(crossDir)
 	if err != nil {
 		return fmt.Errorf("no cross-review reports (dir %s): %w", crossDir, err)
@@ -224,11 +248,28 @@ func cmdDecide(args []string) error {
 		return fmt.Errorf("--dir required")
 	}
 
-	reviews, err := loadReviews(filepath.Join(*dir, "reviews", "blind"))
+	// Re-verify sealed blind reports against the hashes recorded at seal
+	// time (doc 04 §9.3): any post-seal edit that removes a blocking
+	// finding must be detected, not silently trusted.
+	sealBase := *dir + "-seals"
+	if err := verifySeals(sealBase); err != nil {
+		return fmt.Errorf("seal verification failed: %w", err)
+	}
+
+	reviews, err := loadReviews(filepath.Join(sealBase, "blind"))
 	if err != nil {
 		return err
 	}
-	cross, _ := loadCross(filepath.Join(*dir, "reviews", "cross"))
+	cross, crossFindings := loadCross(filepath.Join(sealBase, "cross"))
+	// Cross-review may surface new findings (schema `new_findings`); a
+	// newly discovered blocker must reach the arbiter, so carry them as an
+	// extra review lane rather than dropping them.
+	if len(crossFindings) > 0 {
+		reviews = append(reviews, arbiter.Review{
+			ReviewID: "cross-new-findings", Provider: "cross", Verdict: "changes_required",
+			Findings: crossFindings,
+		})
+	}
 
 	d := arbiter.Decide(
 		arbiter.GateState{HardGatesPass: *hard, RequiredEvidence: *evid, HumanApprovals: *human},
@@ -252,21 +293,10 @@ func cmdDecide(args []string) error {
 // --- helpers ---
 
 type rawReview struct {
-	ReviewID string `json:"review_id"`
-	Provider string `json:"provider"`
-	Verdict  string `json:"verdict"`
-	Findings []struct {
-		ID           string   `json:"id"`
-		Fingerprint  string   `json:"fingerprint"`
-		Severity     string   `json:"severity"`
-		Category     string   `json:"category"`
-		AcceptanceID []string `json:"acceptance_ids"`
-		Claim        string   `json:"claim"`
-		Reproducer   *struct {
-			Kind string `json:"kind"`
-			Ref  string `json:"ref"`
-		} `json:"reproducer"`
-	} `json:"findings"`
+	ReviewID string       `json:"review_id"`
+	Provider string       `json:"provider"`
+	Verdict  string       `json:"verdict"`
+	Findings []rawFinding `json:"findings"`
 }
 
 func loadReviews(dir string) ([]arbiter.Review, error) {
@@ -289,15 +319,32 @@ func loadReviews(dir string) ([]arbiter.Review, error) {
 		}
 		r := arbiter.Review{ReviewID: rr.ReviewID, Provider: rr.Provider, Verdict: rr.Verdict}
 		for _, f := range rr.Findings {
-			r.Findings = append(r.Findings, arbiter.Finding{
-				ID: f.ID, Fingerprint: f.Fingerprint, Severity: f.Severity,
-				Category: f.Category, AcceptanceID: f.AcceptanceID, Claim: f.Claim,
-				HasReproducer: f.Reproducer != nil,
-			})
+			r.Findings = append(r.Findings, f.toArbiter())
 		}
 		out = append(out, r)
 	}
 	return out, nil
+}
+
+type rawFinding struct {
+	ID           string   `json:"id"`
+	Fingerprint  string   `json:"fingerprint"`
+	Severity     string   `json:"severity"`
+	Category     string   `json:"category"`
+	AcceptanceID []string `json:"acceptance_ids"`
+	Claim        string   `json:"claim"`
+	Reproducer   *struct {
+		Kind string `json:"kind"`
+		Ref  string `json:"ref"`
+	} `json:"reproducer"`
+}
+
+func (f rawFinding) toArbiter() arbiter.Finding {
+	return arbiter.Finding{
+		ID: f.ID, Fingerprint: f.Fingerprint, Severity: f.Severity,
+		Category: f.Category, AcceptanceID: f.AcceptanceID, Claim: f.Claim,
+		HasReproducer: f.Reproducer != nil,
+	}
 }
 
 type rawCross struct {
@@ -306,14 +353,19 @@ type rawCross struct {
 		TargetFindingID string `json:"target_finding_id"`
 		Disposition     string `json:"disposition"`
 	} `json:"responses"`
+	NewFindings []rawFinding `json:"new_findings"`
 }
 
-func loadCross(dir string) ([]arbiter.CrossResponse, error) {
+// loadCross returns both the dispositions on the other reviewer's findings
+// and any findings newly discovered during cross-review (schema
+// `new_findings`), which must not be dropped before arbitration.
+func loadCross(dir string) ([]arbiter.CrossResponse, []arbiter.Finding) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, nil
 	}
-	var out []arbiter.CrossResponse
+	var resp []arbiter.CrossResponse
+	var newFindings []arbiter.Finding
 	for _, e := range entries {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
 			continue
@@ -324,12 +376,40 @@ func loadCross(dir string) ([]arbiter.CrossResponse, error) {
 			continue
 		}
 		for _, r := range rc.Responses {
-			out = append(out, arbiter.CrossResponse{
+			resp = append(resp, arbiter.CrossResponse{
 				SourceProvider: rc.Provider, TargetFindingID: r.TargetFindingID, Disposition: r.Disposition,
 			})
 		}
+		for _, f := range rc.NewFindings {
+			newFindings = append(newFindings, f.toArbiter())
+		}
 	}
-	return out, nil
+	return resp, newFindings
+}
+
+// verifySeals recomputes each sealed blind report's hash and compares it
+// to the manifest written at seal time. A mismatch means a report was
+// edited after sealing — fail closed.
+func verifySeals(sealBase string) error {
+	raw, err := os.ReadFile(filepath.Join(sealBase, "seals.json"))
+	if err != nil {
+		// No seals recorded yet (e.g. agent-unavailable run) — nothing to verify.
+		return nil
+	}
+	var seals map[string]string
+	if err := json.Unmarshal(raw, &seals); err != nil {
+		return err
+	}
+	for name, want := range seals {
+		got, err := bundle.FileSHA256(filepath.Join(sealBase, "blind", name))
+		if err != nil {
+			return fmt.Errorf("sealed report %s missing: %w", name, err)
+		}
+		if got != want {
+			return fmt.Errorf("sealed report %s changed after sealing: have %s want %s", name, got, want)
+		}
+	}
+	return nil
 }
 
 func loadFixtures(spec string) (map[agent.Provider][]byte, error) {

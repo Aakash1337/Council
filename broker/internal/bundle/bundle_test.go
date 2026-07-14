@@ -59,6 +59,31 @@ func TestVerifyDetectsTamper(t *testing.T) {
 	}
 }
 
+func TestVerifyRejectsAddedInputFile(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "spec/specification.md", "the spec")
+	b, err := Freeze(dir, "r", "repo", "CDNS-002", "high", "a", "b", "s", "t", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Verify(dir); err != nil {
+		t.Fatalf("clean verify: %v", err)
+	}
+	// Add a NEW file under a frozen input tree after freeze.
+	writeFile(t, dir, "spec/injected.md", "attacker content")
+	if err := b.Verify(dir); err == nil {
+		t.Fatal("verify must reject a file added under a frozen input tree")
+	}
+	// A file under an output tree is allowed.
+	dir2 := t.TempDir()
+	writeFile(t, dir2, "spec/specification.md", "the spec")
+	b2, _ := Freeze(dir2, "r", "repo", "CDNS-002", "high", "a", "b", "s", "t", nil)
+	writeFile(t, dir2, "reviews/blind/anthropic.json", "{}")
+	if err := b2.Verify(dir2); err != nil {
+		t.Fatalf("output-tree files must be allowed: %v", err)
+	}
+}
+
 func TestBundleHashChangesWithHead(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "spec/specification.md", "the spec")

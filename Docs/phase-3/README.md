@@ -1,6 +1,6 @@
 # Phase 3 — Local Execution Plane
 
-**Status:** In progress 2026-07-14
+**Status:** Delivered 2026-07-14 — G3 met (drills passed on the live VM)
 **Roadmap reference:** [Phase 3 work items](../agentic-cicd-docs/07-implementation-roadmap.md)
 
 Moves trusted deterministic workloads onto a home-hosted runner while preserving the GitHub-hosted recovery path. On this host (Windows 11 Home, no Hyper-V) the isolation unit is a VirtualBox VM (Phase 0 R-040).
@@ -49,8 +49,25 @@ The runner is registered **repository-scoped, ephemeral**, labels `self-hosted,l
 
 **Infrastructure-failure finding (R-038 in action).** The first local run **failed with "the self-hosted runner lost communication with the server."** Root cause: a heavy `codex exec` (ultra reasoning, ~12k tokens) was running on the **host** at the same time as the VM was compiling six CI tools from source — the host CPU was saturated and the 4-vCPU VM was starved until its runner lost heartbeat, then the VM itself became briefly unresponsive. This is exactly the colocation risk R-038 predicted (the workstation hosts development, the runner, and agent work simultaneously) and it manifested as an **`infrastructure_error`**, not a semantic failure — the platform's failure classification treats it as redispatch-eligible, never as a code failure. Mitigations: keep heavy host work off the box during local runs until migration to the dedicated server (Phase 0 F-01), and/or cap concurrent load. The clean re-run (host idle) is recorded below.
 
-**Clean local run:** _(dispatched host-idle; result appended on completion)_
+**Clean local run — SUCCESS.** With the host kept idle and both Go caches cleared, the nightly's `full-security` job completed **green on `runner_name: ci-pilot`** (route job on hosted → local job on the VM). This is the G3 "trusted CI runs locally with hosted-equivalent results" evidence. A follow-up fix was needed in the pilot repo: `upload-artifact` v4+ excludes hidden files, so the `.ci-evidence/` artifact was empty until `include-hidden-files: true` was added (CustomDNS PR #5).
 
-## R-039 disk check (gates closure)
+**Manual fallback (`force_hosted`) — CONFIRMED.** Dispatching the nightly with `force_hosted=true` routed the `full-security` job to `ubuntu-latest` / a GitHub-hosted runner instead of `ci-pilot`. This is the outage-recovery path: the home server can be offline (or explicitly bypassed) and eligible deterministic work still runs on hosted infrastructure. Subscription-authenticated agent work never takes this path.
 
-After the VM and a first local run, record E: free space; R-039 closes only if headroom is acceptable, else capacity is added.
+**Golden snapshot.** After hardening and one green run, `golden-runner-v1` was taken (`VBoxManage snapshot`). A suspected-compromise or corruption response restores this snapshot rather than cleaning in place (ops runbook §9); it also would have made the cache-corruption recovery above a one-command rollback.
+
+## Exit gate G3 — met
+
+| Criterion | Evidence |
+|---|---|
+| Trusted CI runs locally, hosted-equivalent | Clean nightly green on `ci-pilot`; same `ci/run full` as hosted |
+| Home server offline → manual hosted run works | `force_hosted=true` routed to hosted (confirmed) |
+| Runner cannot reach protected home networks | `reachability-test.sh` PASS, persists across reboot |
+| Workspace cleanup + cache separation | Ephemeral runner (one job, then de-register); per-job clean `_work` |
+| Compromised container cannot get AI/release creds | Credential-absence assertions PASS |
+| Fork/public cannot select the local runner | Repository-scoped runner (PAC-010, by construction) |
+
+Two real defects and two operational failures were caught and resolved along the way (ufw ordering, DNS routing, host-load starvation, cache corruption) — exactly what a discovery-and-drill phase is for.
+
+## R-039 disk check
+
+After building the VM (dynamic disk, actual usage ~6.5 GB) and one full local run, **E: has ~110 GB free** (down from 116 GB at Phase 0; the unused live-server ISO was reclaimed). The dynamic VDI grows only as used and is capped at 60 GB. This is workable for the pilot but not roomy; **R-039 stays Mitigating** with free-space monitoring (`monitor.sh` alerts at 85%), and closes on migration to the dedicated server (Phase 0 F-01) or added capacity. Headroom is acceptable to proceed.

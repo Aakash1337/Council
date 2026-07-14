@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Severity ordering for comparisons.
@@ -40,11 +41,24 @@ type CrossResponse struct {
 	Disposition     string `json:"disposition"` // accept|reject|modify|needs_reproducer|needs_human
 }
 
+// Waiver is an authorized, scoped, expiring exception (doc 05 §13).
+// Waiver *eligibility* is declared by upstream policy — only findings
+// policy marks waivable may appear here; the arbiter enforces scope
+// (exact finding ID) and expiry, and records the approver. Agents can
+// never author these (doc 04 §2).
+type Waiver struct {
+	FindingID string `json:"finding_id"` // exact blocking finding ID
+	Approver  string `json:"approver"`   // named human approver
+	Expiry    string `json:"expiry"`     // RFC3339; compared lexically-safe via time parse
+}
+
 // GateState is the deterministic CI outcome for the candidate.
 type GateState struct {
 	HardGatesPass    bool
-	RequiredEvidence bool // all required evidence present, fresh, hash-matched
-	HumanApprovals   bool // required human approvals present for the tier
+	RequiredEvidence bool     // all required evidence present, fresh, hash-matched
+	HumanApprovals   bool     // required human approvals present for the tier
+	Waivers          []Waiver // policy-eligible, human-approved waivers
+	Now              string   // RFC3339 evaluation time (injected for determinism)
 }
 
 // Decision is the normalized broker output (doc 05 §13 statuses).
@@ -52,6 +66,7 @@ type Decision struct {
 	Conclusion     string   `json:"conclusion"`      // pass|pass_with_waiver|blocked|pending
 	ReviewCoverage string   `json:"review_coverage"` // complete|pending_agent|agent_substituted|human_required
 	BlockingIDs    []string `json:"blocking_ids"`
+	WaivedIDs      []string `json:"waived_ids,omitempty"`
 	Reasons        []string `json:"reasons"`
 }
 
@@ -184,15 +199,57 @@ func Decide(gate GateState, reviews []Review, cross []CrossResponse, agentsAvail
 		return d
 	}
 
+	// Waiver application (doc 05 §13): a blocking finding moves to waived
+	// only when an unexpired, human-approved waiver names its exact ID.
+	// Hard-gate and evidence failures returned above are non-waivable by
+	// construction — waivers apply only to finding-level blocks.
+	if len(gate.Waivers) > 0 && len(d.BlockingIDs) > 0 {
+		valid := map[string]Waiver{}
+		for _, w := range gate.Waivers {
+			if w.Approver == "" {
+				continue // unowned waiver is invalid
+			}
+			if expired(w.Expiry, gate.Now) {
+				d.Reasons = append(d.Reasons, fmt.Sprintf("waiver for %s expired %s — not applied", w.FindingID, w.Expiry))
+				continue
+			}
+			valid[w.FindingID] = w
+		}
+		var stillBlocking []string
+		for _, id := range d.BlockingIDs {
+			if w, ok := valid[id]; ok {
+				d.WaivedIDs = append(d.WaivedIDs, id)
+				d.Reasons = append(d.Reasons, fmt.Sprintf("%s waived by %s until %s", id, w.Approver, w.Expiry))
+			} else {
+				stillBlocking = append(stillBlocking, id)
+			}
+		}
+		d.BlockingIDs = stillBlocking
+	}
+
 	sort.Strings(d.BlockingIDs)
+	sort.Strings(d.WaivedIDs)
 	switch {
 	case len(d.BlockingIDs) > 0:
 		d.Conclusion = "blocked"
 	case needsHuman:
 		d.Conclusion = "pending"
 		d.ReviewCoverage = "human_required"
+	case len(d.WaivedIDs) > 0:
+		d.Conclusion = "pass_with_waiver"
 	default:
 		d.Conclusion = "pass"
 	}
 	return d
+}
+
+// expired reports whether the waiver expiry is at or before now. Both
+// are RFC3339; unparseable values fail closed (treated as expired).
+func expired(expiry, now string) bool {
+	e, err1 := time.Parse(time.RFC3339, expiry)
+	n, err2 := time.Parse(time.RFC3339, now)
+	if err1 != nil || err2 != nil {
+		return true
+	}
+	return !e.After(n)
 }

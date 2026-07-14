@@ -325,6 +325,8 @@ policy / decision
 
 `policy / decision` is the single normalized final gate, but the underlying checks SHOULD also remain visible so failure causes are immediately understandable.
 
+**Pilot consolidation:** the pilot implements these as five checks — `spec / traceability` (also covering `eval / acceptance` until scored evals exist), `ci / build-test` (covering `ci / format-lint-type`, `ci / build-unit`, and `ci / integration-contract`), `security / secrets-sast-sca`, `workflow / lint`, and `policy / decision` — to control hosted-runner minutes. The mapping is recorded in the Phase 2 status record; the seven-name split remains the organizational target.
+
 ## 15. Review cadence
 
 This standard SHOULD be reviewed:

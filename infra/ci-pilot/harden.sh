@@ -28,6 +28,18 @@ echo "== host LAN discovery (for deny rules) =="
 DEFAULT_IF=$(ip route show default | awk '{print $5; exit}')
 echo "default interface: $DEFAULT_IF"
 
+echo "== DNS via the VBox NAT proxy only =="
+# The VM must resolve DNS through VirtualBox's NAT host-resolver proxy at
+# 10.0.2.3 (inside the allowed NAT segment), NOT through any real LAN
+# resolver. The home network hands out a resolver in 10.0.0.0/8
+# (e.g. 10.64.0.1) which the LAN-deny rule below correctly blocks; that
+# resolver must not be the runner's DNS. Requires the VM to be created
+# with `--natdnshostresolver1 on --natdnsproxy1 on` (see provision-vm.md).
+sudo mkdir -p /etc/systemd/resolved.conf.d
+printf '[Resolve]\nDNS=10.0.2.3\nDomains=~.\n' | sudo tee /etc/systemd/resolved.conf.d/council.conf >/dev/null
+sudo resolvectl dns "$DEFAULT_IF" 10.0.2.3 2>/dev/null || true
+sudo systemctl restart systemd-resolved
+
 echo "== ufw deny-by-default with egress allowlist =="
 sudo ufw --force reset
 sudo ufw default deny incoming
@@ -36,21 +48,23 @@ sudo ufw default deny outgoing
 # Inbound: only SSH from the NAT host (management path).
 sudo ufw allow in 22/tcp comment 'host SSH management'
 
+# RULE ORDER MATTERS: ufw evaluates rules top-to-bottom, first match
+# wins. The port allows below (allow out 443) would otherwise match a
+# connection to a LAN host on :443 before any destination deny. So the
+# private-range denies MUST precede the port allows. The VBox NAT
+# segment (10.0.2.0/24 — gateway and DNS) is allowed first, then the
+# rest of 10/8 and the other RFC1918 ranges are denied, then ports.
+sudo ufw allow out to 10.0.2.0/24 comment 'VBox NAT segment (gateway/DNS)'
+for cidr in 192.168.0.0/16 172.16.0.0/12 10.0.0.0/8; do
+  sudo ufw deny out to "$cidr" comment 'home LAN deny (before port allows)'
+done
+
 # Outbound essentials: DNS, NTP, HTTPS (to reach GitHub/pkg/scanners).
+# These only apply to destinations not already denied above.
 sudo ufw allow out 53 comment 'DNS'
 sudo ufw allow out 123/udp comment 'NTP'
 sudo ufw allow out 443/tcp comment 'HTTPS: GitHub, modules, scanners'
 sudo ufw allow out 80/tcp comment 'HTTP: apt, redirects'
-
-# Explicitly deny private LAN ranges so a bug in the allowlist can't
-# reach home infrastructure (defense in depth; NAT already isolates).
-for cidr in 192.168.0.0/16 172.16.0.0/12; do
-  sudo ufw deny out to "$cidr" comment 'home LAN deny'
-done
-# 10.0.2.0/24 is the VBox NAT segment (gateway/DNS live here) — allow it,
-# but deny the rest of 10.0.0.0/8.
-sudo ufw allow out to 10.0.2.0/24 comment 'VBox NAT segment'
-sudo ufw deny out to 10.0.0.0/8 comment 'other 10.x LAN deny'
 
 sudo ufw --force enable
 sudo ufw status verbose

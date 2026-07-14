@@ -30,9 +30,18 @@ Moves trusted deterministic workloads onto a home-hosted runner while preserving
 | Compromised test container cannot obtain AI/release credentials | credential-absence assertions in reachability test | pending VM |
 | Fork/public cannot select the local runner | repository-scoped runner (PAC-010) | by construction |
 
-## VM provisioning status
+## Provisioning outcome and drill evidence
 
-The VM install is driven by VirtualBox unattended mode. **Known risk being validated:** VBox 7.0's Ubuntu template uses the legacy debian-installer preseed path, which Ubuntu 24.04's subiquity installer may not fully honor. If the unattended install does not produce a reachable SSH host, the fallback is a cloud-init `autoinstall` seed ISO (documented in `provision-vm.md` once exercised). This file is updated with the concrete drill evidence once the VM is reachable.
+**VM built (2026-07-14):** Ubuntu 24.04.4 LTS, 4 vCPU / 8 GB / 58 GB root, on E:. Access via SSH key as `runner`.
+
+**Provisioning pivot (recorded honestly).** The first attempt used VirtualBox `unattended install` against the live-server ISO. It failed exactly as the risk noted: VBox 7.0's legacy preseed does not drive Ubuntu 24.04's subiquity installer, which stalled at an interactive prompt and never created the account (SSH responded — the installer's own sshd — but no credential worked). The reliable path that succeeded: boot the official **cloud image** and configure it from a NoCloud cloud-init seed (see `provision-vm.md`, `seed/`). No installer involved.
+
+**Two real bugs the drills caught (the point of testing):**
+
+1. **ufw rule ordering.** The first `harden.sh` placed `allow out 443/tcp` before the LAN denies. Because ufw is first-match, a connection to a LAN host on `:443` matched the port allow before the deny — the reachability test flagged `10.0.0.1:443` still reachable. Fixed by ordering the private-range denies *before* the port allows.
+2. **DNS via a real LAN resolver.** The home network hands out a resolver at `10.64.0.1` (inside 10/8). The correct LAN-deny then broke DNS, because that denied resolver was the only working one (the public `75.75.75.75` is unreachable from the NAT'd guest). Fixed architecturally: enable VirtualBox's NAT DNS host-resolver proxy (`--natdnshostresolver1 on`) and point the guest at `10.0.2.3` (inside the allowed NAT segment). DNS now resolves through the hypervisor proxy; no real LAN host is reachable.
+
+**Final reachability red-team (`reachability-test.sh`) — PASS:** all home-LAN targets and cloud metadata unreachable, GitHub reachable, zero AI/deployment credentials present, all provider env vars unset. This is the PAC-008 / G3 isolation evidence.
 
 ## R-039 disk check (gates closure)
 

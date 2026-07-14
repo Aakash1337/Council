@@ -41,7 +41,15 @@ Moves trusted deterministic workloads onto a home-hosted runner while preserving
 1. **ufw rule ordering.** The first `harden.sh` placed `allow out 443/tcp` before the LAN denies. Because ufw is first-match, a connection to a LAN host on `:443` matched the port allow before the deny — the reachability test flagged `10.0.0.1:443` still reachable. Fixed by ordering the private-range denies *before* the port allows.
 2. **DNS via a real LAN resolver.** The home network hands out a resolver at `10.64.0.1` (inside 10/8). The correct LAN-deny then broke DNS, because that denied resolver was the only working one (the public `75.75.75.75` is unreachable from the NAT'd guest). Fixed architecturally: enable VirtualBox's NAT DNS host-resolver proxy (`--natdnshostresolver1 on`) and point the guest at `10.0.2.3` (inside the allowed NAT segment). DNS now resolves through the hypervisor proxy; no real LAN host is reachable.
 
-**Final reachability red-team (`reachability-test.sh`) — PASS:** all home-LAN targets and cloud metadata unreachable, GitHub reachable, zero AI/deployment credentials present, all provider env vars unset. This is the PAC-008 / G3 isolation evidence.
+**Final reachability red-team (`reachability-test.sh`) — PASS:** all home-LAN targets and cloud metadata unreachable, GitHub reachable, zero AI/deployment credentials present, all provider env vars unset. This is the PAC-008 / G3 isolation evidence. Verified to **persist across a VM reboot** (ufw active, DNS still via 10.0.2.3, test still passes).
+
+## Runner registration and a real local job
+
+The runner is registered **repository-scoped, ephemeral**, labels `self-hosted,linux,x64,ci-pilot`, run as a systemd service. The nightly workflow's `route` job (on GitHub-hosted) selects the local runner; the `full-security` job then executes on the VM. First dispatch confirmed the job running with `runner_name: ci-pilot`.
+
+**Infrastructure-failure finding (R-038 in action).** The first local run **failed with "the self-hosted runner lost communication with the server."** Root cause: a heavy `codex exec` (ultra reasoning, ~12k tokens) was running on the **host** at the same time as the VM was compiling six CI tools from source — the host CPU was saturated and the 4-vCPU VM was starved until its runner lost heartbeat, then the VM itself became briefly unresponsive. This is exactly the colocation risk R-038 predicted (the workstation hosts development, the runner, and agent work simultaneously) and it manifested as an **`infrastructure_error`**, not a semantic failure — the platform's failure classification treats it as redispatch-eligible, never as a code failure. Mitigations: keep heavy host work off the box during local runs until migration to the dedicated server (Phase 0 F-01), and/or cap concurrent load. The clean re-run (host idle) is recorded below.
+
+**Clean local run:** _(dispatched host-idle; result appended on completion)_
 
 ## R-039 disk check (gates closure)
 

@@ -100,6 +100,7 @@ Inherent score is `likelihood × impact` before planned controls. Residual score
 | R-038 | Workstation colocation: the daily-driver machine also hosts the runner VM and agent broker, weakening trust-zone separation (Phase 0 finding F-01) | 4/4/16 | VirtualBox VM boundary for the runner; dedicated OS accounts for agent clients; host-only/NAT VM networking; ACT-004 reachability tests before agent credentials; revisit if a separate server is added | 2/3/6 | Platform owner | Open |
 | R-039 | Disk exhaustion on the pilot host blocks runner VM, caches, and evidence storage (Phase 0 finding F-02) | 4/3/12 | Free/add ~150 GB before P3; cache and evidence quotas; retention lifecycle from day one | 2/2/4 | Platform owner | Open |
 | R-040 | VirtualBox dependency on Windows 11 Home (no Hyper-V): community update cadence and manual VM lifecycle | 3/3/9 | Pin VirtualBox version; scripted VM template; staged updates; revisit on host OS upgrade | 2/2/4 | Platform owner | Open |
+| R-041 | GitHub Free cannot enforce branch protection/required checks on the private pilot repo; a direct push or unchecked merge to main is technically possible (Phase 0 finding F-03) | 3/4/12 | Owner decision: GitHub Pro upgrade or documented process discipline for the pilot; must be resolved before unattended agent work (P5); required-check workflows still run and report either way | 2/3/6 | Project owner | Open |
 
 ## 4. Detailed treatment and monitoring plan
 

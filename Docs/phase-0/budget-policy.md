@@ -11,7 +11,7 @@
 | Claude Max subscription | Existing; the primary Claude capacity source. No plan upgrade authorized without a project-owner decision. |
 | ChatGPT Pro subscription | Existing; the primary Codex capacity source. Same rule. |
 | Anthropic / OpenAI API | **$0. No automatic fallback** (CON-001, ADR-012). Enabling paid API use requires a new ADR with a budget ceiling. |
-| GitHub Actions (hosted) | Within the account plan's included minutes only. Plan and included minutes are **[OWNER INPUT]** (Free = 2,000 min/month for private repos). No paid minute overage authorized; if minutes run out, work queues for the local runner or waits for the monthly reset. |
+| GitHub Actions (hosted) | Within the account plan's included minutes only. Plan confirmed **Free** (owner billing screenshot, 2026-07-14): 2,000 min/month + 0.5 GB Actions storage for private repos. No paid minute overage authorized; if minutes run out, work queues for the local runner or waits for the monthly reset. A GitHub Pro upgrade (~$4/mo) is pending as owner decision #7 (merge protection, R-041) — if taken, it also raises included minutes to 3,000. |
 | GitHub storage (artifacts/packages) | Within plan allowance; artifact retention set per doc 06 §9.3 defaults to stay under it. |
 | Local storage | Constrained — see R-039. Evidence and caches live on E: with quotas; no new hardware purchase is assumed by this policy (owner may choose to add storage as the R-039 remediation). |
 | New infrastructure/services | $0 assumed. Any paid service (object storage, registry, observability SaaS) requires a project-owner decision recorded in an ADR. |

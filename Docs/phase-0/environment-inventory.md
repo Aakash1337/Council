@@ -18,9 +18,9 @@ Items the agent could not observe are marked **[OWNER INPUT]** and listed again 
 | OS | Windows 11 Home Single Language 10.0.26200 |
 | Virtualization firmware | Enabled (`VirtualizationFirmwareEnabled: true`, `HypervisorPresent: true`) |
 
-**Finding F-01 — no separate home server discovered.** The documentation set assumes "a capable home server" distinct from the operator's workstation. No separate server is visible from this machine. ASM-002 is provisionally satisfied by **this workstation**, which therefore hosts, at different times: daily development, the local CI runner (P3), and the agent broker (P4/P5). This colocation is recorded as new risk **R-038** in the [risk register](../agentic-cicd-docs/09-risk-register-and-decisions.md). **[OWNER INPUT]** — confirm no separate server exists, or provide its inventory.
+**Finding F-01 — separate server exists but is deferred (owner answer, 2026-07-14).** A separate physical box exists, **dual-booting between a NAS role and a server role** (the two roles cannot run simultaneously). The owner's plan: build and test the platform entirely on this workstation, then migrate to the server box after the product is complete. Until migration, the workstation hosts daily development, the local CI runner (P3), and the agent broker (P4/P5) — colocation recorded as risk **R-038**. The dual-boot exclusivity (NAS offline while serving, and vice versa) must be inventoried before the migration is planned.
 
-**Finding F-02 — disk capacity is the binding constraint.** Both volumes are >85% full. A runner VM (60–120 GB per doc 06 §3.2), build caches, and evidence storage do not fit comfortably in current free space. Recorded as new risk **R-039**. **[OWNER ACTION]** — free or add roughly 150 GB before Phase 3.
+**Finding F-02 — disk capacity: resolved by owner decision (2026-07-14).** Runner VM disks, build caches, and evidence storage will live on **E:** (3.7 TB, ~116 GB currently free). Quotas and retention lifecycle remain mandatory from day one, and E: free space is monitored — 116 GB is workable for the pilot but not roomy. Risk **R-039** treatment updated accordingly.
 
 ## 2. Virtualization options
 
@@ -55,9 +55,9 @@ Both first-party agent clients are installed and current. They currently live in
 |---|---|
 | NIC | Marvell AQC111C 5 GbE, linked at 1 Gbps |
 | Inbound exposure | None required (self-hosted runners are outbound-only) |
-| Router VLAN capability | **[OWNER INPUT]** |
-| NAS / other LAN devices | **[OWNER INPUT]** |
-| UPS / power protection | **[OWNER INPUT]** |
+| Router VLAN capability | **None** — Xfinity default gateway (owner answer, 2026-07-14). Hardened-v1 segmentation will use VM-level network isolation and host firewall rules, or a future managed switch, not router VLANs |
+| NAS / other LAN devices | NAS exists on the same physical box as the future server (dual-boot; mutually exclusive with server role) |
+| UPS / power protection | **None** (owner answer). Accepted for the pilot; R-015's outage handling covers power loss — an interrupted job is an infrastructure failure, never silently retried |
 
 Full VLAN segmentation (doc 06 §8) is a hardened-v1 concern; for the pilot, VirtualBox host-only/NAT network modes plus Windows Firewall rules provide the interim boundary. The reachability red-team test (ACT-004) remains required before agent credentials are introduced.
 
@@ -66,9 +66,11 @@ Full VLAN segmentation (doc 06 §8) is a hardened-v1 concern; for the pilot, Vir
 | Item | Value |
 |---|---|
 | Account | `Aakash1337` |
-| Plan | Not readable with current token scope — **[OWNER INPUT]**: confirm plan and monthly Actions minutes for private repositories (Free plan = 2,000 hosted minutes/month) |
+| Plan | **Free** — 2,000 Actions minutes/month and 0.5 GB Actions storage included, $0 billable (owner billing screenshot, 2026-07-14; allowance resets on an ~monthly cycle) |
 | Council repo | `Aakash1337/Council`, **public** (intentional — shareable documentation) |
-| Pilot candidate repo | `Aakash1337/CustomDNS`, currently **public** (see [pilot decision](pilot-decision.md)) |
+| Pilot repo | `Aakash1337/CustomDNS`, **private** (flipped by owner, 2026-07-14) |
+
+**Finding F-03 — GitHub Free cannot enforce branch protection on private repositories.** Branch protection and rulesets on private repos require GitHub Pro or higher. Consequence: Phase 2 can implement required-check *workflows*, but GitHub will not *block* a direct push or an unchecked merge to `main` on the private pilot repo. Owner decision required — see the [G0 checklist](README.md) owner-actions table (option A: GitHub Pro upgrade, ~$4/month, needs a budget-policy amendment; option B: accept process-discipline-only protection for the pilot and revisit before unattended agent work in P5; option C is not available — making the pilot public conflicts with CON-004). Recorded as risk **R-041**.
 
 ## 6. Subscriptions
 

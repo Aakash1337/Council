@@ -20,7 +20,7 @@ Items the agent could not observe are marked **[OWNER INPUT]** and listed again 
 
 **Finding F-01 — separate server exists but is deferred (owner answer, 2026-07-14).** A separate physical box exists, **dual-booting between a NAS role and a server role** (the two roles cannot run simultaneously). The owner's plan: build and test the platform entirely on this workstation, then migrate to the server box after the product is complete. Until migration, the workstation hosts daily development, the local CI runner (P3), and the agent broker (P4/P5) — colocation recorded as risk **R-038**. The dual-boot exclusivity (NAS offline while serving, and vice versa) must be inventoried before the migration is planned.
 
-**Finding F-02 — disk capacity: resolved by owner decision (2026-07-14).** Runner VM disks, build caches, and evidence storage will live on **E:** (3.7 TB, ~116 GB currently free). Quotas and retention lifecycle remain mandatory from day one, and E: free space is monitored — 116 GB is workable for the pilot but not roomy. Risk **R-039** treatment updated accordingly.
+**Finding F-02 — disk location decided; capacity risk stays open (2026-07-14).** Runner VM disks, build caches, and evidence storage will live on **E:** (3.7 TB, ~116 GB currently free). This is a *location decision*, not a capacity resolution: doc-06 sizing gives the ci-pilot VM alone 60–120 GB. Pilot mitigation: the VM uses a dynamically-allocated disk capped at 60 GB, caches and evidence carry quotas from day one, and E: free space is monitored with an alert threshold. **R-039 remains open (Mitigating)** and closes only when measured post-VM headroom is acceptable or capacity is added — checked at P3 exit (G3).
 
 ## 2. Virtualization options
 

@@ -28,7 +28,7 @@ Deliverables for [roadmap Phase 0](../agentic-cicd-docs/07-implementation-roadma
 | 1 | Flip `CustomDNS` to private | P1 | **Done** 2026-07-14 |
 | 2 | Confirm or correct the `httpserver`/`cybiccrm` classification assumption | G0 | **Confirmed** — not the owner's repo; disqualification stands |
 | 3 | Verify both providers' model-improvement controls; record date | P4 | **Verified** 2026-07-14 — disabled since account creation; quarterly recheck 2026-10-14 |
-| 4 | Free or add ~150 GB disk (R-039) | P3 | **Resolved** — runner VM, caches, and evidence go on E: (116 GB free, monitored, quota'd) |
+| 4 | Free or add ~150 GB disk (R-039) | P3 | **Decision recorded, risk stays open** — location is E: (116 GB free). Not capacity-resolved: the doc-06 VM sizing alone is 60–120 GB. Mitigation: pilot VM capped at a 60 GB dynamically-allocated disk, cache/evidence quotas, free-space monitoring; R-039 moves to *Mitigating* and closes only when measured headroom exists (or capacity is added) before P3 exit |
 | 5 | Confirm/supply: router VLAN capability, NAS presence, UPS status; separate home server | P3 | **Answered** 2026-07-14 — Xfinity default gateway (no VLANs); NAS dual-boots on the future server box; no UPS; server migration planned post-build |
 | 6 | Verify GitHub plan and monthly Actions minutes | P2 | **Verified** — Free plan, 2,000 min + 0.5 GB/month |
 | 7 | **NEW — decide merge-protection approach (R-041/F-03):** GitHub Free cannot enforce branch protection on the private pilot repo. Option A: upgrade to GitHub Pro (~$4/mo; budget amendment). Option B: proceed with process discipline for the pilot; revisit before unattended agents (P5). | P2 exit (G2) | **Open** |

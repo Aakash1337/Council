@@ -455,7 +455,7 @@ func loadWaivers(path string) ([]arbiter.Waiver, error) {
 func loadFixtures(spec string) (map[agent.Provider][]byte, error) {
 	out := map[agent.Provider][]byte{}
 	if spec == "" {
-		return out, fmt.Errorf("mock mode needs --mock FILE:provider,...")
+		return out, fmt.Errorf("mock mode needs one or more --mock FILE:provider pairs")
 	}
 	for _, pair := range splitComma(spec) {
 		file, prov, ok := cut(pair, ":")

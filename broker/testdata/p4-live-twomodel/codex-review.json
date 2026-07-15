@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "run_id": "twomodel-01",
+  "review_id": "review-codex-01",
+  "provider": "openai",
+  "client": "codex-cli",
+  "model": "recorded-by-client",
+  "role": "independent_reviewer",
+  "phase": "blind",
+  "base_sha": "0000000000000000000000000000000000000000",
+  "head_sha": "1111111111111111111111111111111111111111",
+  "spec_sha256": "f9b06cfb326692f117c3348f8ed6a4cd89b00e3a53d4f4d1267865a5357de39e",
+  "bundle_sha256": "92462a1cf995fafdfbebccce9f026e95c93dbb84833d8150da90386f9fe86508",
+  "prompt_template_sha256": "a90357e4ecf04d42a73f796ffef367bb19eb9e56e4f089ab812e2f5174a3a307",
+  "verdict": "changes_required",
+  "summary": "The candidate does not satisfy CDNS-002/AC-006. Concurrent Get and Put operations access a Go map without synchronization, producing data races and possible fatal runtime errors. Mutable byte slices also escape the cache without ownership protection, expired entries accumulate indefinitely, and the supplied evidence contains no race-focused tests.",
+  "findings": [
+    {
+      "id": "BR-001",
+      "fingerprint": "cache-unsynchronized-map-access",
+      "origin": "blind_review",
+      "category": "concurrency_failure_recovery",
+      "severity": "high",
+      "confidence": 1.0,
+      "acceptance_ids": [
+        "CDNS-002/AC-006"
+      ],
+      "location": {
+        "path": "internal/resolver/cache.go",
+        "start_line": 3,
+        "end_line": 9
+      },
+      "claim": "Cache.Get and Cache.Put access the same map without synchronization, so concurrent use causes data races and may terminate the process with a concurrent-map runtime error.",
+      "expected": "All access to entries must be synchronized or implemented with an equivalent concurrency-safe design, and concurrent operations must remain clean under the Go race detector.",
+      "actual": "Get reads c.entries directly while Put writes it directly, with no mutex, ownership confinement, or concurrent-map abstraction.",
+      "evidence_refs": [
+        "CDNS-002/REQ-006",
+        "CDNS-002/AC-006",
+        "internal/resolver/cache.go:3",
+        "internal/resolver/cache.go:7",
+        "internal/resolver/cache.go:9"
+      ],
+      "reproducer": {
+        "kind": "command",
+        "ref": "Run one goroutine repeatedly calling Put and another repeatedly calling Get on the same Cache, then execute `go test -race`; conflicting map accesses occur at cache.go:7 and cache.go:9."
+      },
+      "suggested_remediation": "Add a sync.RWMutex to Cache, hold an RLock while reading, and hold a Lock while writing or deleting. Add race-detector tests covering concurrent Get/Get, Get/Put, and Put/Put operations.",
+      "status": "open"
+    },
+    {
+      "id": "BR-002",
+      "fingerprint": "cache-mutable-byte-slice-aliasing",
+      "origin": "blind_review",
+      "category": "security",
+      "severity": "medium",
+      "confidence": 0.93,
+      "acceptance_ids": [
+        "CDNS-002/AC-006"
+      ],
+      "location": {
+        "path": "internal/resolver/cache.go",
+        "start_line": 4,
+        "end_line": 9
+      },
+      "claim": "The cache retains and returns caller-owned mutable byte slices, allowing cached responses to be altered externally and permitting races on message contents even after map access is synchronized.",
+      "expected": "The cache must define safe ownership semantics; absent an explicit immutable-buffer contract, it should copy messages when storing and when returning them.",
+      "actual": "Put stores msg directly and Get returns e.msg directly, exposing the same backing array to producers, consumers, and the cache.",
+      "evidence_refs": [
+        "CDNS-002/REQ-006",
+        "CDNS-002/AC-006",
+        "internal/resolver/cache.go:4",
+        "internal/resolver/cache.go:7",
+        "internal/resolver/cache.go:9"
+      ],
+      "reproducer": {
+        "kind": "test",
+        "ref": "Put a byte slice, mutate the original, and observe Get returning the mutation; then mutate a returned slice and observe subsequent Get calls returning the altered data. Concurrent mutation and retrieval can be exercised under `go test -race`."
+      },
+      "suggested_remediation": "Clone msg before storing it and return a clone from Get, or enforce and document immutable ownership through an API that cannot expose writable shared storage.",
+      "status": "open"
+    },
+    {
+      "id": "BR-003",
+      "fingerprint": "cache-expired-entries-never-evicted",
+      "origin": "blind_review",
+      "category": "maintainability_performance",
+      "severity": "medium",
+      "confidence": 0.98,
+      "acceptance_ids": [],
+      "location": {
+        "path": "internal/resolver/cache.go",
+        "start_line": 6,
+        "end_line": 9
+      },
+      "claim": "Expired entries are reported as misses but never removed, so memory use grows with every distinct key and can create an availability risk under sustained or adversarial traffic.",
+      "expected": "Expired entries should be removed safely, and the cache should have an eviction or size-bounding policy appropriate to its workload.",
+      "actual": "Get returns false for an expired entry without deleting it, while Put can add an unlimited number of distinct keys.",
+      "evidence_refs": [
+        "internal/resolver/cache.go:7",
+        "internal/resolver/cache.go:9"
+      ],
+      "reproducer": {
+        "kind": "test",
+        "ref": "Insert many distinct keys with expired TTLs, call Get after expiration, and inspect the cache from a same-package test; len(c.entries) remains equal to the number inserted."
+      },
+      "suggested_remediation": "Delete expired entries under exclusive synchronization and introduce a bounded-capacity eviction strategy or periodic cleanup if key cardinality is not strictly bounded elsewhere.",
+      "status": "open"
+    },
+    {
+      "id": "BR-004",
+      "fingerprint": "cache-race-acceptance-tests-not-provided",
+      "origin": "blind_review",
+      "category": "test_adequacy",
+      "severity": "medium",
+      "confidence": 0.78,
+      "acceptance_ids": [
+        "CDNS-002/AC-006"
+      ],
+      "location": null,
+      "claim": "The supplied candidate includes no automated test or race-detector evidence validating the mandatory concurrency-safety acceptance criterion.",
+      "expected": "Tests should exercise concurrent reads and writes, message ownership, expiration behavior, and run successfully with `go test -race` in CI.",
+      "actual": "Only the cache implementation was supplied; no tests, race-detector output, or CI configuration accompany it.",
+      "evidence_refs": [
+        "CDNS-002/AC-006",
+        "candidate bundle: internal/resolver/cache.go"
+      ],
+      "reproducer": null,
+      "suggested_remediation": "Add deterministic functional tests plus stress-style concurrent Get/Put tests, and make a race-enabled test invocation an acceptance gate.",
+      "status": "open"
+    }
+  ],
+  "unreviewed_areas": [
+    "Repository-wide cache callers and any documented byte-slice ownership contract",
+    "Existing test files and CI race-detector configuration outside the supplied candidate",
+    "Cache requirements beyond the provided CDNS-002 excerpt",
+    "Operational key-cardinality, TTL, and memory constraints"
+  ],
+  "evidence_gaps": [
+    "No repository context, test suite, go.mod, CI logs, or race-detector output was provided.",
+    "No API contract establishes whether callers must treat input and returned byte slices as immutable.",
+    "No workload limits or eviction requirements were provided."
+  ],
+  "completed_at": "2026-07-15T00:00:00-04:00"
+}

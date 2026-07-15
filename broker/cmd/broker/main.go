@@ -8,6 +8,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -122,6 +124,8 @@ func cmdReview(args []string) error {
 	schemaPath := fs.String("schema", "", "agent-review schema")
 	mock := fs.String("mock", "", "comma list of FILE:provider fixtures for mock mode")
 	real := fs.Bool("real", false, "use real first-party CLIs")
+	claudeBin := fs.String("claude-bin", "", "path to the claude client (e.g. claude.cmd on Windows)")
+	codexBin := fs.String("codex-bin", "", "path to the codex client (e.g. codex.cmd on Windows)")
 	claudeArgs := fs.String("claude-args", "", "space-separated claude args")
 	codexArgs := fs.String("codex-args", "", "space-separated codex args")
 	promptFile := fs.String("prompt", "", "review prompt file")
@@ -147,6 +151,8 @@ func cmdReview(args []string) error {
 	var runner agent.Runner
 	if *real {
 		runner = &agent.CLIRunner{
+			ClaudeBin:  *claudeBin,
+			CodexBin:   *codexBin,
 			ClaudeArgs: splitArgs(*claudeArgs),
 			CodexArgs:  splitArgs(*codexArgs),
 		}
@@ -182,15 +188,50 @@ func cmdReview(args []string) error {
 
 	providers := []agent.Provider{agent.Anthropic, agent.OpenAI}
 	for _, p := range providers {
+		// Each reviewer gets a prompt carrying ITS OWN identity and the
+		// frozen bundle's real hashes — never another provider's identity
+		// (the seeded-defect probe found a shared prompt made Claude report
+		// Codex's identity). In mock mode the fixture prompt is used as-is.
+		reviewerPrompt := prompt
+		if *real {
+			reviewerPrompt = buildReviewPrompt(prompt, p, b)
+		}
 		res, err := runner.Review(context.Background(), agent.Request{
-			Provider: p, Prompt: prompt, BundleDir: *dir, TimeoutSecs: 1800, MaxTurns: 12,
+			Provider: p, Prompt: reviewerPrompt, BundleDir: *dir, TimeoutSecs: 1800, MaxTurns: 12,
 		})
 		if err != nil {
 			return fmt.Errorf("%s review: %w", p, err)
 		}
-		// Untrusted until validated.
-		if err := val.ValidateBytes(res.RawJSON); err != nil {
-			return fmt.Errorf("%s review failed schema validation: %w", p, err)
+		// Untrusted until validated. One bounded schema-repair attempt
+		// (doc 04 §7.2): if the raw report fails validation, re-prompt the
+		// SAME model once with the exact errors, asking it to fix ONLY the
+		// JSON shape — not the substance. A second failure is a hard error,
+		// never a pass.
+		if verr := val.ValidateBytes(res.RawJSON); verr != nil {
+			if !*real {
+				return fmt.Errorf("%s review failed schema validation: %w", p, verr)
+			}
+			repairPrompt := fmt.Sprintf(
+				"Your previous JSON review did not conform to the schema. Fix ONLY the JSON shape (field names, enums, types) — do not change any finding's substance. Errors:\n%s\n\nYour previous output was:\n%s\n\nOutput ONLY the corrected JSON review object.",
+				verr.Error(), string(res.RawJSON))
+			res, err = runner.Review(context.Background(), agent.Request{
+				Provider: p, Prompt: repairPrompt, BundleDir: *dir, TimeoutSecs: 1800, MaxTurns: 12,
+			})
+			if err != nil {
+				return fmt.Errorf("%s schema-repair attempt: %w", p, err)
+			}
+			if verr2 := val.ValidateBytes(res.RawJSON); verr2 != nil {
+				return fmt.Errorf("%s review still invalid after one schema-repair attempt (infrastructure_error, not approval): %w", p, verr2)
+			}
+			fmt.Printf("%s review: one schema-repair attempt applied\n", p)
+		}
+		// Semantic validation beyond JSON Schema (doc 04 §9.3): the
+		// reported provider/client MUST match the actual invocation. A
+		// model that self-reports the wrong identity (or copies an
+		// example) is rejected — the broker trusts the invocation record,
+		// not the model's self-description.
+		if err := checkReviewIdentity(res.RawJSON, p, res.Client); err != nil {
+			return fmt.Errorf("%s review identity check failed: %w", p, err)
 		}
 		results = append(results, sealed{provider: p, raw: res.RawJSON})
 	}
@@ -454,6 +495,79 @@ func verifySeals(sealBase string) error {
 // loadWaivers reads a JSON array of policy-eligible waivers. An empty
 // path means no waivers. Agents never author these files (doc 04 §2);
 // they arrive from the human waiver process (doc 05 §13).
+// checkReviewIdentity enforces doc 04 §9.3: the review's self-reported
+// provider/client must match the actual invocation.
+func checkReviewIdentity(raw []byte, wantProvider agent.Provider, wantClient string) error {
+	var r struct {
+		Provider string `json:"provider"`
+		Client   string `json:"client"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return err
+	}
+	if r.Provider != string(wantProvider) {
+		return fmt.Errorf("reported provider %q != invoked %q", r.Provider, wantProvider)
+	}
+	if r.Client != wantClient {
+		return fmt.Errorf("reported client %q != invoked %q", r.Client, wantClient)
+	}
+	return nil
+}
+
+// buildReviewPrompt appends a per-reviewer identity block and the frozen
+// bundle's real hashes to the base review instructions, so each provider
+// returns a correctly-identified report bound to the actual candidate.
+func buildReviewPrompt(base string, p agent.Provider, b *bundle.Bundle) string {
+	client := "claude-code"
+	if p == agent.OpenAI {
+		client = "codex-cli"
+	}
+	reviewID := "review-claude-01"
+	if p == agent.OpenAI {
+		reviewID = "review-codex-01"
+	}
+	hex64 := func(s string) string { // valid lowercase 64-hex for the schema
+		for len(s) < 64 {
+			s += "0"
+		}
+		out := []byte(s[:64])
+		for i, c := range out {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				out[i] = '0'
+			}
+		}
+		return string(out)
+	}
+	return base + fmt.Sprintf(`
+
+## Required identity for YOUR report (use these EXACT values; do not copy any example)
+schema_version: 1
+run_id: %q
+review_id: %q
+provider: %q
+client: %q
+model: "recorded-by-client"
+role: "independent_reviewer"
+phase: "blind"
+base_sha: %q
+head_sha: %q
+spec_sha256: %q
+bundle_sha256: %q
+prompt_template_sha256: %q
+
+Constraints: severity is exactly one of {critical,high,medium,low,info} lowercase; location is an object {path,start_line,end_line} or null; reproducer is an object {kind,ref} or null; include unreviewed_areas[] , evidence_gaps[] , and completed_at (RFC3339).
+
+Output ONLY the JSON review object. No markdown fences, no prose.`,
+		b.RunID, reviewID, string(p), client, b.BaseSHA, b.HeadSHA,
+		hex64(b.SpecSHA256), hex64(b.BundleSHA256), hashHex(base))
+}
+
+// hashHex returns the lowercase hex SHA-256 of s.
+func hashHex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
 func loadWaivers(path string) ([]arbiter.Waiver, error) {
 	if path == "" {
 		return nil, nil

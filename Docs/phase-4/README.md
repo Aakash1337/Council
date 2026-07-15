@@ -1,6 +1,6 @@
 # Phase 4 — Supervised Two-Model Workflow
 
-**Status:** Partially delivered 2026-07-14 — Codex reviewer proven live; Claude reviewer blocked on expired auth (owner action)
+**Status:** Auth unblocked 2026-07-15 — Codex reviewer proven live; Claude unattended auth qualified ([P4-09/PAC-018](p4-09-auth-qualification.md)); real two-model review is the remaining step to close G4
 **Roadmap reference:** [Phase 4 work items](../agentic-cicd-docs/07-implementation-roadmap.md)
 
 Phase 4 validates the review protocol with the real first-party clients before the unattended broker (P5) depends on it.
@@ -9,7 +9,7 @@ Phase 4 validates the review protocol with the real first-party clients before t
 
 | Work item | Deliverable | Status |
 |---|---|---|
-| P4-01 Authenticate Claude Code | — | **Blocked** — the `claude` CLI's OAuth session is expired ("could not be refreshed"). Owner must re-login or run `claude setup-token` (P4-09). |
+| P4-01 Authenticate Claude Code | `CLAUDE_CODE_OAUTH_TOKEN` (setup-token) | **Done 2026-07-15** — token set by owner; unattended auth qualified (P4-09). |
 | P4-02 Authenticate Codex | — | **Done** — `codex exec` runs headless and authenticated. |
 | P4-03 Codex-for-Claude plugin | Supervised interactive path | Deferred (needs Claude auth) |
 | P4-04 Review JSON schema | `agent-review.schema.json` (from P5 broker) | Done |
@@ -17,7 +17,7 @@ Phase 4 validates the review protocol with the real first-party clients before t
 | P4-06 Adversarial review with seeded defect | Real Codex review of a seeded data race (**detection** proven; repair+reconfirm pending) | **Partial — see below** |
 | P4-07 Iteration budgets | Time/turn limits in `CLIRunner` | Done (P5) |
 | P4-08 Review-quality metrics | Detection recorded on the seeded corpus | Partial (single case) |
-| P4-09 Unattended-auth qualification | `claude setup-token` spike (PAC-018) | **Owner action** — see below |
+| P4-09 Unattended-auth qualification | `claude setup-token` spike (PAC-018) | **PASSED 2026-07-15** — [qualification record](p4-09-auth-qualification.md): 12/12 pass@1, all failure drills fail closed |
 
 ## Live evidence: real Codex review of a seeded defect (P4-06 / G4)
 
@@ -28,18 +28,11 @@ A seeded concurrency defect ([`broker/testdata/p4-seeded/cache.go`](../../broker
 
 Artifacts: [`review-prompt.md`](../../broker/testdata/p4-seeded/review-prompt.md), [`codex-review.json`](../../broker/testdata/p4-seeded/codex-review.json) (raw), [`codex-review-repaired.json`](../../broker/testdata/p4-seeded/codex-review-repaired.json) (schema-valid).
 
-## The Claude-auth finding (why two-model is blocked)
+## The Claude-auth finding (resolved 2026-07-15)
 
-Probing both CLIs headlessly:
+Earlier, probing both CLIs headlessly showed `codex exec` authenticated but `claude -p` returning `OAuth session expired and could not be refreshed` — precisely the **agent-unavailable** state the platform is designed for (doc 04 §9, ops runbook §11, risk R-005), during which deterministic CI stayed authoritative and the broker correctly yielded `pending` (never treating one provider as consensus).
 
-- `codex exec` → authenticated, produces output.
-- `claude -p` → `{"is_error": true, "result": "Failed to authenticate: OAuth session expired and could not be refreshed"}`.
-
-This is precisely the **agent-unavailable** state the platform is designed for (doc 04 §9, ops runbook §11, risk R-005). Consequences, all already implemented:
-
-- Deterministic CI is unaffected and remains authoritative.
-- With only one provider available, the broker yields `pending` — a single-provider review is **not** treated as two-agent consensus (ops runbook §12).
-- The fix is the documented P4-09 owner action: run `claude setup-token` on the agent host to mint a one-year `CLAUDE_CODE_OAUTH_TOKEN`, then complete the PAC-018 qualification (10–20 unattended runs; expiry/invalid-token/exhaustion/timeout/malformed/redaction cases fail closed).
+**Resolved:** the owner ran `claude setup-token` and set `CLAUDE_CODE_OAUTH_TOKEN`. The [P4-09 qualification](p4-09-auth-qualification.md) then passed all drills (12/12 structured runs, invalid-token/timeout fail closed, redaction clean, persistence confirmed). The broker may now run `--real` Claude reviews, so the agent-unavailable path returns to being an exception rather than the steady state.
 
 ## Exit gate G4
 

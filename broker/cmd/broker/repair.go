@@ -18,9 +18,9 @@ import (
 )
 
 type repairLedger struct {
-	ChangeID string        `json:"change_id"`
-	MaxCycles int          `json:"max_cycles"`
-	Cycles   []repairCycle `json:"cycles"`
+	ChangeID  string        `json:"change_id"`
+	MaxCycles int           `json:"max_cycles"`
+	Cycles    []repairCycle `json:"cycles"`
 }
 
 type repairCycle struct {

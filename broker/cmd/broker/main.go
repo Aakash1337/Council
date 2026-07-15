@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -35,6 +36,8 @@ func main() {
 		err = cmdCross(os.Args[2:])
 	case "decide":
 		err = cmdDecide(os.Args[2:])
+	case "repair-gate":
+		err = cmdRepairGate(os.Args[2:])
 	case "help", "-h", "--help":
 		usage()
 		return
@@ -45,9 +48,15 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
+		if errors.Is(err, errBlocked) {
+			os.Exit(3)
+		}
 		os.Exit(1)
 	}
 }
+
+// errBlocked marks a blocking policy decision (CLI exit code 3).
+var errBlocked = errors.New("blocked")
 
 func usage() {
 	fmt.Fprint(os.Stderr, `broker <command>
@@ -65,8 +74,15 @@ func usage() {
         (scaffold) validate cross-review reports in D/reviews/cross/.
 
   decide       --dir D --hard-gates-pass BOOL --evidence BOOL \
-               --human-approvals BOOL [--agents-available BOOL]
+               --human-approvals BOOL [--agents-available BOOL] \
+               [--waivers-file F --now TS]
         Apply deterministic arbitration; write D/decision.json.
+
+  repair-gate  --ledger F --change C --from-head SHA [--reason R] \
+               [--max N<=2] [--started-at TS]
+        Authorize the next bounded repair cycle (ADR-008): records the
+        cycle in the per-change ledger, refuses beyond the maximum or
+        for an already-repaired head (no-progress loop).
 
 The broker treats all agent output as untrusted until schema-validated,
 seals blind reports before cross-review, and never lets an agent vote
@@ -305,9 +321,10 @@ func cmdDecide(args []string) error {
 	for _, r := range d.Reasons {
 		fmt.Println("  reason:", r)
 	}
-	// Non-zero exit on a blocking decision so CI can gate on it.
+	// A blocking decision is a distinguishable error so main can exit 3
+	// for CI gating while tests can assert on it (no os.Exit here).
 	if d.Conclusion == "blocked" {
-		os.Exit(3)
+		return fmt.Errorf("decision blocked (%v): %w", d.BlockingIDs, errBlocked)
 	}
 	return nil
 }

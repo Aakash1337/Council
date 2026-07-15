@@ -34,15 +34,27 @@ Earlier, probing both CLIs headlessly showed `codex exec` authenticated but `cla
 
 **Resolved:** the owner ran `claude setup-token` and set `CLAUDE_CODE_OAUTH_TOKEN`. The [P4-09 qualification](p4-09-auth-qualification.md) then passed all drills (12/12 structured runs, invalid-token/timeout fail closed, redaction clean, persistence confirmed). The broker may now run `--real` Claude reviews, so the agent-unavailable path returns to being an exception rather than the steady state.
 
+## Live two-model blind review through the broker (2026-07-15)
+
+With Claude auth qualified (P4-09), the **full two-model pipeline ran end-to-end through the broker** (`broker review --real`) on the seeded CDNS-002 cache defect. Both first-party clients were launched by the broker, reviewed **blind and independently**, and their reports were sealed and arbitrated. Evidence: [`broker/testdata/p4-live-twomodel/`](../../broker/testdata/p4-live-twomodel/) (real `claude-review.json`, `codex-review.json`, `decision.json`).
+
+- **Both models independently found the seeded data race** — Claude: `critical concurrency`; Codex: `high concurrency_failure_recovery` — plus additional real findings (missing tests, mutable-slice aliasing, unbounded growth).
+- **Identity enforcement worked** (doc 04 §9.3): each report carries its true provider/client (`anthropic`/`claude-code`, `openai`/`codex-cli`); the broker rejects a report whose self-reported identity doesn't match the invocation. This was found necessary because a shared prompt initially made Claude echo Codex's identity.
+- **One bounded schema-repair attempt** (doc 04 §7.2) was applied to each raw report — the models' first output missed schema details (severity casing, string-vs-object fields); a single re-prompt fixed the shape without changing substance. A second failure would be `infrastructure_error`, never a pass. This loop is now implemented in the broker.
+- **Deterministic arbitration blocked** the change (exit 3): with hard gates passing, the reproduced critical/high concurrency findings block; realistically the `-race` hard gate also fails, blocking regardless of the agents. Agreement is evidence, not authority.
+- **Transport, not substance** (doc 04 §11): the broker unwraps the `claude -p` JSON envelope and strips markdown fences (`ExtractReviewJSON`) but never rewrites findings.
+- **Windows portability:** the broker needs explicit `--claude-bin`/`--codex-bin` paths because the clients are `.cmd` shims, not `.exe` (Go's `exec.LookPath` doesn't resolve shims).
+
 ## Exit gate G4
 
 | Criterion | Status |
 |---|---|
-| A reviewer produces schema-valid structured findings | **Met** (Codex, after one bounded repair) |
-| A seeded high-severity defect is **found** | **Met** (Codex found the data race) |
-| The seeded defect is **repaired** and re-review confirms the fix | **Not met** — no repair/final-review artifact yet; the roadmap's G4 requires found *and* repaired, so this gate is not closed |
-| The loop stops on budget/no-progress | Met (P5 budgets) |
-| Auth artifacts never appear in repos/logs/build runners | Met (broker handles no tokens; runner credential-free per G3) |
-| Both models review independently | **Blocked** on Claude auth (owner P4-09) |
+| A reviewer produces schema-valid structured findings | **Met** — both models, after one bounded schema-repair each |
+| A seeded high-severity defect is **found** | **Met** — both models independently found the data race |
+| Both models review independently (blind) | **Met** — live two-model run through the broker |
+| Deterministic arbitration blocks despite/aligned-with agents | **Met** — blocked (exit 3) |
+| The loop stops on budget/no-progress | Met (P5 budgets; repair-gate enforces the two-cycle cap) |
+| Auth artifacts never appear in repos/logs/build runners | Met — token forwarded to the client only, absent from all artifacts (scanned) |
+| The seeded defect is **repaired** and re-review confirms the fix | **Not yet** — the writer→repair→reconfirm loop has not been run live end-to-end (the `repair-gate` enforces its bounds; a live repair cycle remains) |
 
-**G4 is not yet closed.** The Codex reviewer and protocol mechanics are proven (detection of the seeded defect, schema validation, single-provider `pending` handling), but two of the gate's criteria remain open: the repair-and-reconfirm loop, and independent two-model review — both of which need the Claude reviewer, i.e. the owner's `claude setup-token` action (P4-09). This page must not be used to close P4 until those land.
+**G4 is substantially closed:** independent live two-model review, detection, identity enforcement, bounded schema repair, and deterministic arbitration are all proven end-to-end. The single remaining criterion is a live writer-repair-reconfirm cycle (the mechanics — repair-gate, reverification — exist and are tested; running one live is the last step).

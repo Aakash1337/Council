@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "run_id": "twomodel-01",
+  "review_id": "review-claude-01",
+  "provider": "anthropic",
+  "client": "claude-code",
+  "model": "recorded-by-client",
+  "role": "independent_reviewer",
+  "phase": "blind",
+  "base_sha": "0000000000000000000000000000000000000000",
+  "head_sha": "1111111111111111111111111111111111111111",
+  "spec_sha256": "f9b06cfb326692f117c3348f8ed6a4cd89b00e3a53d4f4d1267865a5357de39e",
+  "bundle_sha256": "92462a1cf995fafdfbebccce9f026e95c93dbb84833d8150da90386f9fe86508",
+  "prompt_template_sha256": "a90357e4ecf04d42a73f796ffef367bb19eb9e56e4f089ab812e2f5174a3a307",
+  "verdict": "changes_required",
+  "summary": "Cache.entries is a bare Go map accessed by Get and Put with no mutex or other synchronization. Any concurrent use (the normal case for a resolver response cache serving multiple in-flight lookups) will trigger a fatal 'concurrent map read and map write' panic or be flagged by -race, directly violating REQ-006/AC-006. No test file was included to demonstrate concurrency safety or any other behavior.",
+  "findings": [
+    {
+      "id": "F-001",
+      "fingerprint": "cache-go-map-no-mutex-get-put",
+      "origin": "blind_review",
+      "category": "concurrency",
+      "severity": "critical",
+      "confidence": 0.98,
+      "acceptance_ids": ["CDNS-002/AC-006"],
+      "location": {
+        "path": "internal/resolver/cache.go",
+        "start_line": 3,
+        "end_line": 11
+      },
+      "claim": "Cache.entries (a plain map[string]cacheEntry) is read in Get and written in Put with no mutex, RWMutex, sync.Map, or other synchronization primitive guarding access.",
+      "expected": "Per REQ-006, the cache MUST be concurrency-safe and pass `go test -race` under concurrent access. Concurrent Get/Put or Put/Put calls from multiple goroutines must not race.",
+      "actual": "Cache struct has a single field `entries map[string]cacheEntry` and no lock. Get performs `c.entries[key]` and Put performs `c.entries[key] = ...` directly. Go maps are not safe for concurrent read/write or concurrent write/write; this will either panic with 'fatal error: concurrent map read and map write' at runtime or be flagged by the race detector.",
+      "evidence_refs": ["internal/resolver/cache.go:3-11"],
+      "reproducer": {
+        "kind": "manual",
+        "ref": "Spawn N goroutines calling c.Put(key, msg, ttl, now) concurrently with M goroutines calling c.Get(key, now) on a shared *Cache instance, run with `go test -race`; expect a DATA RACE report or a runtime fatal error on concurrent map access."
+      },
+      "suggested_remediation": "Add a sync.RWMutex (or sync.Mutex) field to Cache; take a read lock (RLock/RUnlock) around the map read in Get and a write lock (Lock/Unlock) around the map write in Put. Alternatively use sync.Map if the access pattern favors that.",
+      "status": "open"
+    },
+    {
+      "id": "F-002",
+      "fingerprint": "cache-no-concurrency-tests",
+      "origin": "blind_review",
+      "category": "test_adequacy",
+      "severity": "high",
+      "confidence": 0.9,
+      "acceptance_ids": ["CDNS-002/AC-006"],
+      "location": null,
+      "claim": "No test file (e.g. cache_test.go) is included with the candidate, so there is no automated verification that Get/Put are concurrency-safe or -race clean.",
+      "expected": "AC-006 requires the cache to be verified concurrency-safe and -race clean; a corresponding test exercising concurrent Get/Put under `go test -race` should be part of the change.",
+      "actual": "The bundle contains only internal/resolver/cache.go with no accompanying test file, so REQ-006 compliance is unverified and, given F-001, would in fact fail if tested.",
+      "evidence_refs": ["internal/resolver/cache.go (full file — only source provided)"],
+      "reproducer": null,
+      "suggested_remediation": "Add internal/resolver/cache_test.go with a concurrent-access test (multiple goroutines calling Get/Put on a shared Cache) run under `go test -race` in CI, plus basic expiry/hit/miss unit tests.",
+      "status": "open"
+    },
+    {
+      "id": "F-003",
+      "fingerprint": "cache-unbounded-growth-no-eviction",
+      "origin": "blind_review",
+      "category": "maintainability_performance",
+      "severity": "low",
+      "confidence": 0.6,
+      "acceptance_ids": [],
+      "location": {
+        "path": "internal/resolver/cache.go",
+        "start_line": 9,
+        "end_line": 11
+      },
+      "claim": "Expired entries are only removed lazily when Get is called for that exact key; entries that are Put but never subsequently Get with a matching key (or Get after expiry with a different key pattern) remain in the map forever, growing memory usage unboundedly.",
+      "expected": "A response cache typically bounds memory via periodic sweep of expired entries, an LRU/size cap, or similar, to avoid unbounded growth over the process lifetime.",
+      "actual": "No eviction path exists other than the check-and-skip in Get; Put never removes anything and there is no background sweeper or max-size enforcement.",
+      "evidence_refs": ["internal/resolver/cache.go:9-11"],
+      "reproducer": null,
+      "suggested_remediation": "Add a periodic cleanup goroutine (with proper locking per F-001) or a max-entries/LRU eviction policy to bound memory growth.",
+      "status": "open"
+    }
+  ],
+  "unreviewed_areas": [
+    "Caller sites that invoke Cache.Get/Put (not included in bundle) and whether they actually run concurrently in production, which would confirm real-world exploitability of F-001.",
+    "Any DNS message serialization/validation logic upstream of the cache (msg []byte contents) — out of scope for this file.",
+    "Overall resolver package integration and how TTL/now values are sourced."
+  ],
+  "evidence_gaps": [
+    "No test file was provided in the bundle, so it cannot be confirmed whether a race test was run/expected elsewhere in the repo but simply omitted from this review bundle.",
+    "No information on expected concurrency level (e.g., goroutines per request) to size the severity of the unbounded-growth concern (F-003) more precisely."
+  ],
+  "completed_at": "2026-07-15T00:00:00Z"
+}

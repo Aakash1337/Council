@@ -1,0 +1,85 @@
+# Council's own CI — the platform holds itself to doc 05: the broker is
+# reviewed Go code and gets the same deterministic gates as the pilot.
+# Thin orchestration; check logic is plain toolchain commands (the
+# broker has no ci/run because it is the platform, not an onboarded
+# product repo — see Docs/phase-5/README.md).
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  broker:
+    name: "broker / checks"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: broker
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: broker/go.mod
+          cache-dependency-path: broker/go.sum
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "needs gofmt:"; echo "$out"; exit 1; fi
+      - name: go vet
+        run: go vet ./...
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
+          "$(go env GOPATH)/bin/staticcheck" ./...
+      - name: build
+        run: go build ./...
+      - name: tests (race)
+        run: go test -race -count=1 ./...
+
+  workflow-lint:
+    name: "workflow / lint"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: broker/go.mod
+          cache-dependency-path: broker/go.sum
+      - name: actionlint
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint" -color
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pipx install zizmor==1.26.1
+          zizmor .github/workflows/
+
+  docs-lint:
+    name: "docs / markdownlint"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: markdownlint (agentic-cicd-docs, repo config)
+        working-directory: Docs/agentic-cicd-docs
+        run: npx --yes markdownlint-cli2@0.18.1 "**/*.md"

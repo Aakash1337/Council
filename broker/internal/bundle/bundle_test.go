@@ -3,6 +3,7 @@ package bundle
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -91,5 +92,79 @@ func TestBundleHashChangesWithHead(t *testing.T) {
 	b2, _ := Freeze(dir, "r", "repo", "CDNS-002", "high", "aaa", "ccc", "s", "t", nil)
 	if b1.BundleSHA256 == b2.BundleSHA256 {
 		t.Fatal("bundle hash must change when head SHA changes")
+	}
+}
+
+// Write -> Load must round-trip every field and the loaded bundle must
+// verify against the same directory (audit gap: Load/Write untested).
+func TestWriteLoadRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "spec/specification.md", "the spec")
+	writeFile(t, dir, "subject/diff.patch", "a diff")
+	prompts := map[string]string{"review": "prompt-template-hash"}
+	b, err := Freeze(dir, "run-rt", "repo", "CDNS-002", "high", "aaa", "bbb", "specsha", "2026-07-14T00:00:00Z", prompts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Write(dir); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RunID != b.RunID || got.HeadSHA != b.HeadSHA || got.BaseSHA != b.BaseSHA ||
+		got.BundleSHA256 != b.BundleSHA256 || got.RiskTier != b.RiskTier ||
+		got.ChangeID != b.ChangeID || len(got.Files) != len(b.Files) {
+		t.Fatalf("round-trip mismatch:\n frozen %+v\n loaded %+v", b, got)
+	}
+	if got.PromptTemplates["review"] != "prompt-template-hash" {
+		t.Fatalf("prompt templates lost in round trip: %+v", got.PromptTemplates)
+	}
+	if err := got.Verify(dir); err != nil {
+		t.Fatalf("loaded bundle must verify: %v", err)
+	}
+}
+
+// Load fails cleanly on a missing or corrupt bundle.json.
+func TestLoadFailsClosed(t *testing.T) {
+	if _, err := Load(t.TempDir()); err == nil {
+		t.Fatal("Load on empty dir must error")
+	}
+	dir := t.TempDir()
+	writeFile(t, dir, "bundle.json", "{corrupt")
+	if _, err := Load(dir); err == nil {
+		t.Fatal("Load on corrupt bundle.json must error")
+	}
+}
+
+// A tampered bundle.json (edited head SHA) breaks the aggregate hash.
+func TestLoadedTamperedManifestFailsVerify(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "spec/specification.md", "the spec")
+	b, err := Freeze(dir, "r", "repo", "CDNS-002", "high", "aaa", "bbb", "s", "t", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Write(dir); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "bundle.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := []byte(strings.Replace(string(raw), `"bbb"`, `"evil"`, 1))
+	if string(tampered) == string(raw) {
+		t.Fatal("tamper needle not found")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bundle.json"), tampered, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := got.Verify(dir); err == nil {
+		t.Fatal("verify must fail for a manifest whose fields were edited after freeze")
 	}
 }
